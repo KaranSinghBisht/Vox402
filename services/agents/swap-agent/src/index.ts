@@ -1,13 +1,14 @@
-// services/agents/chart-agent/src/index.ts
+// services/agents/swap-agent/src/index.ts
 import path, { dirname } from "path";
 import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
+
 import express from "express";
 import cors from "cors";
 import { z } from "zod";
-import { createPublicClient, createWalletClient, http, verifyTypedData } from "viem";
+import { createPublicClient, createWalletClient, http, verifyTypedData, encodeFunctionData, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { avalancheFuji } from "viem/chains";
 
@@ -22,14 +23,12 @@ app.use(
 );
 app.use(express.json());
 
-// ===== x402 + Avalanche Fuji constants (from Avalanche x402 course) =====
-// Network strings + USDC Fuji address documented by Avalanche Builder Hub.  [oai_citation:2‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/02-http-payment-required)
+// ===== x402 + Fuji constants =====
 const X402_VERSION = 1 as const;
 const NETWORK = "avalanche-fuji" as const;
 const CHAIN_ID = 43113 as const;
-const USDC_FUJI = "0x5425890298aed601595a70AB815c96711a31Bc65" as const; // USDC Fuji  [oai_citation:3‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/02-http-payment-required)
+const USDC_FUJI = "0x5425890298aed601595a70AB815c96711a31Bc65" as const;
 
-// EIP-3009 domain in Avalanche guide: name "USD Coin", version "2"  [oai_citation:4‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/03-x-payment-header)
 const USDC_EIP712_DOMAIN = {
   name: "USD Coin",
   version: "2",
@@ -48,7 +47,6 @@ const TRANSFER_WITH_AUTH_TYPES = {
   ],
 } as const;
 
-// Minimal EIP-3009 ABI
 const USDC_EIP3009_ABI = [
   {
     type: "function",
@@ -69,14 +67,51 @@ const USDC_EIP3009_ABI = [
   },
 ] as const;
 
+// UniswapV2-style router subset
+const ROUTER_ABI = [
+  {
+    type: "function",
+    name: "getAmountsOut",
+    stateMutability: "view",
+    inputs: [
+      { name: "amountIn", type: "uint256" },
+      { name: "path", type: "address[]" },
+    ],
+    outputs: [{ name: "amounts", type: "uint256[]" }],
+  },
+  {
+    type: "function",
+    name: "swapExactTokensForTokens",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "amountIn", type: "uint256" },
+      { name: "amountOutMin", type: "uint256" },
+      { name: "path", type: "address[]" },
+      { name: "to", type: "address" },
+      { name: "deadline", type: "uint256" },
+    ],
+    outputs: [{ name: "amounts", type: "uint256[]" }],
+  },
+] as const;
+
 // ===== env =====
 const FUJI_RPC_URL = process.env.FUJI_RPC_URL || "https://api.avax-test.network/ext/bc/C/rpc";
-const PAYTO = process.env.CHART_AGENT_PAYTO as `0x${string}` | undefined;
-const GAS_PAYER_PK = process.env.CHART_AGENT_GAS_PAYER_PK as `0x${string}` | undefined;
-const PRICE_BASEUNITS = process.env.CHART_AGENT_PRICE_BASEUNITS || "10000"; // 0.01 USDC  [oai_citation:5‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/02-http-payment-required)
 
-if (!PAYTO) throw new Error("Missing CHART_AGENT_PAYTO in .env");
-if (!GAS_PAYER_PK) throw new Error("Missing CHART_AGENT_GAS_PAYER_PK in .env");
+const PAYTO =
+  (process.env.SWAP_AGENT_PAYTO as `0x${string}` | undefined) ??
+  (process.env.CHART_AGENT_PAYTO as `0x${string}` | undefined);
+
+const GAS_PAYER_PK =
+  (process.env.SWAP_AGENT_GAS_PAYER_PK as `0x${string}` | undefined) ??
+  (process.env.CHART_AGENT_GAS_PAYER_PK as `0x${string}` | undefined);
+
+const PRICE_BASEUNITS = process.env.SWAP_AGENT_PRICE_BASEUNITS || "10000"; // 0.01 USDC default
+
+// Router MUST be set for real quotes/swaps
+const ROUTER = process.env.SWAP_AGENT_ROUTER as `0x${string}` | undefined;
+
+if (!PAYTO) throw new Error("Missing SWAP_AGENT_PAYTO (or CHART_AGENT_PAYTO) in .env");
+if (!GAS_PAYER_PK) throw new Error("Missing SWAP_AGENT_GAS_PAYER_PK (or CHART_AGENT_GAS_PAYER_PK) in .env");
 
 const publicClient = createPublicClient({
   chain: avalancheFuji,
@@ -91,15 +126,13 @@ const walletClient = createWalletClient({
 });
 
 // replay protection (MVP): memory-only
-const used = new Set<string>(); // `${from}:${nonce}`
+const used = new Set<string>();
 const inflight = new Set<string>();
 
-// ===== helpers =====
 function splitSignature(sig: string): { r: `0x${string}`; s: `0x${string}`; v: number } {
   if (typeof sig !== "string" || !sig.startsWith("0x")) throw new Error("Invalid signature");
   const hex = sig.slice(2);
 
-  // 65-byte signature: r(32) + s(32) + v(1)
   if (hex.length === 130) {
     const r = (`0x${hex.slice(0, 64)}`) as `0x${string}`;
     const s = (`0x${hex.slice(64, 128)}`) as `0x${string}`;
@@ -108,7 +141,6 @@ function splitSignature(sig: string): { r: `0x${string}`; s: `0x${string}`; v: n
     return { r, s, v };
   }
 
-  // 64-byte EIP-2098 compact signature: r(32) + vs(32)
   if (hex.length === 128) {
     const r = (`0x${hex.slice(0, 64)}`) as `0x${string}`;
     const vsHex = `0x${hex.slice(64, 128)}`;
@@ -132,7 +164,6 @@ function utf8ToB64(s: string) {
 }
 
 function paymentRequired(resourcePath: string, description: string) {
-  // 402 response schema matches Avalanche docs  [oai_citation:6‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/02-http-payment-required)
   return {
     x402Version: X402_VERSION,
     accepts: [
@@ -151,16 +182,10 @@ function paymentRequired(resourcePath: string, description: string) {
   };
 }
 
-const ChartReq = z.object({
-  coinId: z.string().default("avalanche-2"),
-  vs: z.string().default("usd"),
-  days: z.number().min(1).max(365).default(30),
-});
-
 async function verifyAndSettleX402(req: express.Request, res: express.Response, resourcePath: string) {
   const header = req.header("x-payment") || req.header("X-PAYMENT");
   if (!header) {
-    res.status(402).json(paymentRequired(resourcePath, "Access to ChartAgent"));
+    res.status(402).json(paymentRequired(resourcePath, "Access to SwapAgent"));
     return { ok: false as const };
   }
 
@@ -168,40 +193,31 @@ async function verifyAndSettleX402(req: express.Request, res: express.Response, 
   try {
     parsed = JSON.parse(b64ToUtf8(header));
   } catch {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "Invalid X-PAYMENT encoding" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "Invalid X-PAYMENT encoding" });
     return { ok: false as const };
   }
 
-  // Expected X-PAYMENT shape (Avalanche docs)  [oai_citation:7‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/03-x-payment-header)
   if (parsed?.x402Version !== 1 || parsed?.scheme !== "exact" || parsed?.network !== NETWORK) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "Unsupported x402 payload" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "Unsupported x402 payload" });
     return { ok: false as const };
   }
 
   const signature = parsed?.payload?.signature as `0x${string}` | undefined;
   const authorization = parsed?.payload?.authorization as
-    | {
-        from: `0x${string}`;
-        to: `0x${string}`;
-        value: string;
-        validAfter: string;
-        validBefore: string;
-        nonce: `0x${string}`;
-      }
+    | { from: `0x${string}`; to: `0x${string}`; value: string; validAfter: string; validBefore: string; nonce: `0x${string}` }
     | undefined;
 
   if (!signature || !authorization) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "Missing signature/authorization" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "Missing signature/authorization" });
     return { ok: false as const };
   }
 
-  // Basic checks against our payment requirements
   if (authorization.to.toLowerCase() !== PAYTO!.toLowerCase()) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "payTo mismatch" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "payTo mismatch" });
     return { ok: false as const };
   }
   if (authorization.value !== PRICE_BASEUNITS) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "value must equal maxAmountRequired" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "value must equal maxAmountRequired" });
     return { ok: false as const };
   }
 
@@ -209,25 +225,22 @@ async function verifyAndSettleX402(req: express.Request, res: express.Response, 
   const validAfter = Number(authorization.validAfter);
   const validBefore = Number(authorization.validBefore);
   if (!(validAfter <= now && now <= validBefore)) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "authorization not currently valid" });
-    return { ok: false as const };
-  }
-
-  const key = `${authorization.from.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
-  if (used.has(key) || inflight.has(key)) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "nonce already used" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "authorization not currently valid" });
     return { ok: false as const };
   }
 
   const maxWindow = 60;
   if (Number(authorization.validBefore) - Number(authorization.validAfter) > maxWindow) {
-    res
-      .status(402)
-      .json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "authorization window too long" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "authorization window too long" });
     return { ok: false as const };
   }
 
-  // Verify EIP-712 signature (same typed data as docs)  [oai_citation:8‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/03-x-payment-header)
+  const key = `${authorization.from.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
+  if (used.has(key) || inflight.has(key)) {
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "nonce already used" });
+    return { ok: false as const };
+  }
+
   const isValidSig = await verifyTypedData({
     address: authorization.from,
     domain: USDC_EIP712_DOMAIN,
@@ -245,13 +258,11 @@ async function verifyAndSettleX402(req: express.Request, res: express.Response, 
   });
 
   if (!isValidSig) {
-    res.status(402).json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: "invalid signature" });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: "invalid signature" });
     return { ok: false as const };
   }
 
-  // Settle onchain by submitting transferWithAuthorization (server pays gas)
   inflight.add(key);
-
   try {
     const { v, r, s } = splitSignature(signature);
     const txHash = await walletClient.writeContract({
@@ -272,24 +283,13 @@ async function verifyAndSettleX402(req: express.Request, res: express.Response, 
     });
 
     await publicClient.waitForTransactionReceipt({ hash: txHash });
-
-    // Mark nonce used after successful settlement
     used.add(key);
 
-    // X-PAYMENT-RESPONSE schema from Avalanche docs  [oai_citation:9‡Avalanche Builder Hub](https://build.avax.network/academy/blockchain/x402-payment-infrastructure/03-technical-architecture/04-x-payment-response-header)
-    const settlement = {
-      success: true,
-      transaction: txHash,
-      network: NETWORK,
-      payer: authorization.from,
-      errorReason: null,
-    };
+    const settlement = { success: true, transaction: txHash, network: NETWORK, payer: authorization.from, errorReason: null };
     res.setHeader("X-PAYMENT-RESPONSE", utf8ToB64(JSON.stringify(settlement)));
     return { ok: true as const, payer: authorization.from, txHash };
   } catch (e: any) {
-    res
-      .status(402)
-      .json({ ...paymentRequired(resourcePath, "Access to ChartAgent"), error: `settlement failed: ${e?.shortMessage ?? e?.message ?? "unknown"}` });
+    res.status(402).json({ ...paymentRequired(resourcePath, "Access to SwapAgent"), error: `settlement failed: ${e?.shortMessage ?? e?.message ?? "unknown"}` });
     return { ok: false as const };
   } finally {
     inflight.delete(key);
@@ -297,35 +297,72 @@ async function verifyAndSettleX402(req: express.Request, res: express.Response, 
 }
 
 // ===== routes =====
-app.get("/health", (_req, res) => res.json({ ok: true, agent: "chart-agent", payTo: PAYTO, network: NETWORK }));
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, agent: "swap-agent", payTo: PAYTO, network: NETWORK, routerConfigured: !!ROUTER })
+);
 
-app.post("/chart", async (req, res) => {
-  const resourcePath = "/chart";
+const QuoteReq = z.object({
+  tokenIn: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  tokenOut: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  amountIn: z.string().regex(/^\d+$/), // baseunits string
+  recipient: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  slippageBps: z.number().int().min(0).max(10_000).optional().default(50),
+});
 
-  const parsed = ChartReq.safeParse(req.body ?? {});
+app.post("/quote", async (req, res) => {
+  const resourcePath = "/quote";
+  const parsed = QuoteReq.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "invalid_payload", details: parsed.error.flatten() });
+
+  if (!ROUTER) return res.status(501).json({ error: "router_not_configured", hint: "Set SWAP_AGENT_ROUTER in .env (UniswapV2-style router)" });
 
   const pay = await verifyAndSettleX402(req, res, resourcePath);
   if (!pay.ok) return;
 
-  const { coinId, vs, days } = parsed.data;
+  const tokenIn = parsed.data.tokenIn as Address;
+  const tokenOut = parsed.data.tokenOut as Address;
+  const recipient = parsed.data.recipient as Address;
+  const amountIn = BigInt(parsed.data.amountIn);
+  const slippageBps = parsed.data.slippageBps;
 
-  const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=${encodeURIComponent(vs)}&days=${days}`;
-  const r = await fetch(url, { headers: { accept: "application/json" } });
-  if (!r.ok) return res.status(502).json({ error: "upstream_failed", status: r.status });
+  const pathArr: Address[] = [tokenIn, tokenOut];
 
-  const j: any = await r.json();
-  const prices: [number, number][] = Array.isArray(j?.prices) ? j.prices : [];
-  const series = prices.map(([t, price]) => ({ t, price }));
+  const amounts = (await publicClient.readContract({
+    address: ROUTER as Address,
+    abi: ROUTER_ABI,
+    functionName: "getAmountsOut",
+    args: [amountIn, pathArr],
+  })) as bigint[];
+
+  const amountOut = amounts[amounts.length - 1] ?? 0n;
+  const minOut = (amountOut * BigInt(10_000 - slippageBps)) / 10_000n;
+
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 min
+
+  const data = encodeFunctionData({
+    abi: ROUTER_ABI,
+    functionName: "swapExactTokensForTokens",
+    args: [amountIn, minOut, pathArr, recipient, deadline],
+  });
 
   return res.json({
-    coinId,
-    vs,
-    days,
-    series,
-    meta: { source: "coingecko", points: series.length, paidBy: pay.payer, settlementTx: pay.txHash },
+    quote: {
+      amountIn: amountIn.toString(),
+      amountOut: amountOut.toString(),
+      minOut: minOut.toString(),
+      slippageBps,
+      path: pathArr,
+      deadline: deadline.toString(),
+    },
+    tx: {
+      to: ROUTER,
+      data,
+      value: "0",
+      // NOTE: user must approve tokenIn for ROUTER before this swap.
+    },
+    meta: { paidBy: pay.payer, settlementTx: pay.txHash },
   });
 });
 
-const port = process.env.PORT ? Number(process.env.PORT) : 4101;
-app.listen(port, () => console.log(`chart-agent listening on http://localhost:${port}`));
+const port = process.env.PORT ? Number(process.env.PORT) : 4103;
+app.listen(port, () => console.log(`swap-agent listening on http://localhost:${port}`));

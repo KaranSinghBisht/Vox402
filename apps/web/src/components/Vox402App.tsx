@@ -15,7 +15,11 @@ import { InputArea } from "@/components/chat/InputArea";
 import { ActionPanel } from "@/components/chat/ActionPanel";
 import { type SeriesPoint } from "@/components/chart/MiniLineChart";
 
-type NextAction = { kind: "chart"; args: { coinId: string; days: number; vs: string } } | null;
+type NextAction =
+  | { kind: "chart"; args: { coinId: string; days: number; vs: string } }
+  | { kind: "wallet"; args: { address: string } }
+  | { kind: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; slippageBps?: number } }
+  | null;
 
 type PaymentRequirements = {
   x402Version: number;
@@ -241,10 +245,11 @@ export function Vox402App() {
     setLastSettlement(null);
 
     try {
+      const payload = walletAddr ? { text: trimmed, walletAddr } : { text: trimmed };
       const res = await fetch(`${orchestratorUrl}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json().catch(() => ({}));
@@ -298,14 +303,55 @@ export function Vox402App() {
         } catch {}
       }
 
-      if (json?.status === "ok" && pendingAction.kind === "chart") {
-        const series: SeriesPoint[] = json?.result?.series ?? [];
-      pushMessage({ role: "assistant", text: `Here’s AVAX (${pendingAction.args.days}d).`, kind: "chart", chart: { title: "AVAX", series } });
-      setPendingAction(null);
-      autoRunKeyRef.current = null;
-      setPending402(null);
-      return;
-    }
+      if (json?.status === "ok") {
+        if (pendingAction.kind === "chart") {
+          const series: SeriesPoint[] = json?.result?.series ?? [];
+          pushMessage({
+            role: "assistant",
+            text: `Here’s AVAX (${pendingAction.args.days}d).`,
+            kind: "chart",
+            chart: { title: "AVAX", series },
+          });
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        if (pendingAction.kind === "wallet") {
+          const addr = json?.result?.address ?? pendingAction.args.address;
+          const nativeWei = json?.result?.native?.wei ?? "0";
+          const tokens = Array.isArray(json?.result?.tokens) ? json.result.tokens : [];
+          const usdc = tokens.find((t: any) => (t?.symbol ?? "").toUpperCase() === "USDC");
+          const usdcBase = usdc?.balance ?? "0";
+          const usdcDec = Number(usdc?.decimals ?? 6);
+
+          const usdcFloat = Number(usdcBase) / Math.pow(10, usdcDec);
+
+          pushMessage({
+            role: "assistant",
+            kind: "text",
+            text: `Balances for ${addr}\n- AVAX (wei): ${nativeWei}\n- USDC: ${usdcFloat.toFixed(4)} (baseunits: ${usdcBase})`,
+          });
+
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        if (pendingAction.kind === "swap") {
+          pushMessage({
+            role: "assistant",
+            kind: "text",
+            text: `Swap quote result:\n${JSON.stringify(json?.result, null, 2).slice(0, 1200)}`,
+          });
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+      }
 
       pushMessage({ role: "assistant", text: `Run result: ${JSON.stringify(json).slice(0, 400)}`, kind: "text" });
     } catch (e: any) {
@@ -336,7 +382,7 @@ export function Vox402App() {
         to: option.payTo,
         value: BigInt(option.maxAmountRequired),
         validAfter: BigInt(now),
-        validBefore: BigInt(now + 300),
+        validBefore: BigInt(now + 55),
         nonce: randomBytes32Hex(),
       } as const;
 
@@ -418,11 +464,25 @@ export function Vox402App() {
   };
 
   useEffect(() => {
-    if (!pendingAction || pendingAction.kind !== "chart") return;
-    const a = pendingAction.args;
-    const ready = !!a?.coinId && !!a?.days && !!a?.vs;
+    if (!pendingAction) return;
 
-    const key = `${pendingAction.kind}:${a.coinId}:${a.days}:${a.vs}`;
+    let key = "";
+    let ready = false;
+
+    if (pendingAction.kind === "chart") {
+      const a = pendingAction.args;
+      ready = !!a?.coinId && !!a?.days && !!a?.vs;
+      key = `${pendingAction.kind}:${a.coinId}:${a.days}:${a.vs}`;
+    } else if (pendingAction.kind === "wallet") {
+      const a = pendingAction.args;
+      ready = !!a?.address;
+      key = `${pendingAction.kind}:${a.address}`;
+    } else if (pendingAction.kind === "swap") {
+      const a = pendingAction.args;
+      ready = !!a?.tokenIn && !!a?.tokenOut && !!a?.amountIn && !!a?.recipient;
+      key = `${pendingAction.kind}:${a.tokenIn}:${a.tokenOut}:${a.amountIn}:${a.recipient}:${a.slippageBps ?? 50}`;
+    }
+
     if (!ready || pending402 || lastSettlement || busy) return;
     if (autoRunKeyRef.current === key) return;
 
