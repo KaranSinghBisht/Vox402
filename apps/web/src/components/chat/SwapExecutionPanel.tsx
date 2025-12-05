@@ -60,6 +60,30 @@ const ROUTER_ABI = [
         ],
         outputs: [{ name: "amounts", type: "uint256[]" }],
     },
+    {
+        type: "function",
+        name: "swapExactAVAXForTokens", // Some routers use this
+        stateMutability: "payable",
+        inputs: [
+            { name: "amountOutMin", type: "uint256" },
+            { name: "path", type: "address[]" },
+            { name: "to", type: "address" },
+            { name: "deadline", type: "uint256" },
+        ],
+        outputs: [{ name: "amounts", type: "uint256[]" }],
+    },
+    {
+        type: "function",
+        name: "swapExactETHForTokens", // Standard Uniswap V2 naming
+        stateMutability: "payable",
+        inputs: [
+            { name: "amountOutMin", type: "uint256" },
+            { name: "path", type: "address[]" },
+            { name: "to", type: "address" },
+            { name: "deadline", type: "uint256" },
+        ],
+        outputs: [{ name: "amounts", type: "uint256[]" }],
+    },
 ] as const;
 
 export function SwapExecutionPanel({
@@ -117,23 +141,57 @@ export function SwapExecutionPanel({
             // Build swap tx with FRESH deadline (10 minutes from now)
             const freshDeadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 
-            const swapData = encodeFunctionData({
-                abi: ROUTER_ABI,
-                functionName: "swapExactTokensForTokens",
-                args: [
-                    BigInt(swapArgs.amountIn),
-                    BigInt(swapArgs.minOut),
-                    swapArgs.path as `0x${string}`[],
-                    swapArgs.recipient as `0x${string}`,
-                    freshDeadline,
-                ],
-            });
+            // Detect Native Swap
+            const isNativeIn = quote.tokenInSymbol === "AVAX" || quote.tokenInSymbol === "WAVAX";
+            // NOTE: Even if symbol is WAVAX, we allow trying Native Swap because users usually mean Native.
+            // If they truly meant Wrapped, this function (swapExactETH) might still work if the router wraps it? 
+            // Actually, swapExactETH expects msg.value. 
+            // If we send value, it wraps and swaps. 
+            // If we don't send value (0), it fails.
+
+            let swapData;
+            let value = BigInt(0);
+
+            if (isNativeIn) {
+                // Use Standard V2 method name (TraderJoe/Pangolin often use swapExactAVAXForTokens or swapExactETHForTokens)
+                // Let's try encodeFunctionData for 'swapExactETHForTokens' as it matches standard V2.
+                // If the router is specifically Pangolin, it might be swapExactAVAXForTokens.
+                // We'll try ETH first as it's most common in V2 forks.
+
+                // Also, native swap function signature is (amountOutMin, path, to, deadline)
+                // It does NOT take amountIn as an argument (it takes it as msg.value)
+
+                swapData = encodeFunctionData({
+                    abi: ROUTER_ABI,
+                    functionName: "swapExactETHForTokens",
+                    args: [
+                        BigInt(swapArgs.minOut),
+                        swapArgs.path as `0x${string}`[],
+                        swapArgs.recipient as `0x${string}`,
+                        freshDeadline,
+                    ],
+                });
+                value = BigInt(swapArgs.amountIn);
+            } else {
+                // ERC20 -> Token
+                swapData = encodeFunctionData({
+                    abi: ROUTER_ABI,
+                    functionName: "swapExactTokensForTokens",
+                    args: [
+                        BigInt(swapArgs.amountIn),
+                        BigInt(swapArgs.minOut),
+                        swapArgs.path as `0x${string}`[],
+                        swapArgs.recipient as `0x${string}`,
+                        freshDeadline,
+                    ],
+                });
+            }
 
             const hash = await client.sendTransaction({
                 account: walletAddr,
                 to: swapArgs.router as `0x${string}`,
                 data: swapData,
-                value: BigInt(0),
+                value: value,
             });
 
             setSwapTxHash(hash);

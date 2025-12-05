@@ -3,13 +3,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { createWalletClient, custom, getAddress } from "viem";
+import { createWalletClient, custom, getAddress, http, type Hex } from "viem";
 import { avalancheFuji } from "viem/chains";
 import { Hexagon, Activity, ChevronLeft } from "lucide-react";
 import { b64decodeUtf8, b64encodeUtf8 } from "@/lib/base64";
 import { randomBytes32Hex } from "@/lib/random";
 import { detectProvider, ensureFuji, type EIP1193Provider } from "@/lib/wallet";
 import { useWalletAuth } from "@/hooks/useWalletAuth";
+import { useSessionWallet } from "@/hooks/useSessionWallet";
+import { privateKeyToAccount } from "viem/accounts";
 import { AuthButton } from "@/components/wallet/AuthButton";
 import { MessageBubble, type UIMessage } from "@/components/chat/MessageBubble";
 import { InputArea } from "@/components/chat/InputArea";
@@ -114,6 +116,7 @@ export function Vox402App() {
 
   // Use unified wallet auth (Privy + Core)
   const { walletAddress, provider, isAuthenticated, displayName } = useWalletAuth();
+  const { sessionAccount } = useSessionWallet();
   const walletAddr = walletAddress;
 
   const [messages, setMessages] = useState<UIMessage[]>([
@@ -234,6 +237,81 @@ export function Vox402App() {
     setVoiceCommit(null);
   }, [voiceCommit, busy]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-pay effect
+  useEffect(() => {
+    if (pending402 && sessionAccount && pendingAction && !busy) {
+      console.log("Auto-pay effect triggered");
+      const request = pending402;
+
+      (async () => {
+        try {
+          pushMessage({ role: "assistant", kind: "text", text: "🤖 Paying with allowance..." });
+
+          const option = request.accepts[0];
+          const client = createWalletClient({
+            account: sessionAccount,
+            chain: avalancheFuji,
+            transport: http()
+          });
+
+          const now = Math.floor(Date.now() / 1000);
+          const authorization = {
+            from: sessionAccount.address,
+            to: option.payTo,
+            value: BigInt(option.maxAmountRequired),
+            validAfter: BigInt(0), // Set to 0 to be valid immediately regardless of clock skew
+            validBefore: BigInt(now + 3600), // Valid for 1 hour
+            nonce: randomBytes32Hex(),
+          } as const;
+
+          const signature = await client.signTypedData({
+            account: sessionAccount,
+            domain: { name: "USD Coin", version: "2", chainId: 43113, verifyingContract: option.asset },
+            types: {
+              TransferWithAuthorization: [
+                { name: "from", type: "address" },
+                { name: "to", type: "address" },
+                { name: "value", type: "uint256" },
+                { name: "validAfter", type: "uint256" },
+                { name: "validBefore", type: "uint256" },
+                { name: "nonce", type: "bytes32" },
+              ],
+            },
+            primaryType: "TransferWithAuthorization",
+            message: authorization,
+          });
+
+          const paymentPayload = {
+            x402Version: 1,
+            scheme: option.scheme,
+            network: option.network,
+            payload: {
+              signature,
+              authorization: {
+                from: authorization.from,
+                to: authorization.to,
+                value: authorization.value.toString(),
+                validAfter: authorization.validAfter.toString(),
+                validBefore: authorization.validBefore.toString(),
+                nonce: authorization.nonce,
+              },
+            },
+          };
+
+          const xPayment = b64encodeUtf8(JSON.stringify(paymentPayload));
+
+          // Invoke action again with payment
+          // We set pending402 to null so this effect doesn't loop
+          setPending402(null);
+          await runActionInternal(pendingAction, xPayment);
+        } catch (e) {
+          console.error("Auto-pay effect failed", e);
+          pushMessage({ role: "assistant", kind: "text", text: "⚠️ Auto-pay failed." });
+        }
+      })();
+    }
+  }, [pending402, sessionAccount, pendingAction, busy]);
+
   type NewUIMessage =
     | Omit<Extract<UIMessage, { kind: "text" }>, "id" | "ts">
     | Omit<Extract<UIMessage, { kind: "chart" }>, "id" | "ts">;
@@ -316,6 +394,7 @@ export function Vox402App() {
       // Handle 402 Payment Required
       if (res.status === 402) {
         const header = res.headers.get("www-authenticate") || "";
+
         if (header.includes("x402")) {
           const request = parseX402Request(header);
           if (request) {
@@ -547,8 +626,8 @@ export function Vox402App() {
         from: walletAddr,
         to: option.payTo,
         value: BigInt(option.maxAmountRequired),
-        validAfter: BigInt(now),
-        validBefore: BigInt(now + 55),
+        validAfter: BigInt(0), // Set to 0 to be valid immediately
+        validBefore: BigInt(now + 3600), // Valid for 1 hour
         nonce: randomBytes32Hex(),
       } as const;
 
