@@ -13,12 +13,17 @@ import { WalletConnect } from "@/components/wallet/WalletConnect";
 import { MessageBubble, type UIMessage } from "@/components/chat/MessageBubble";
 import { InputArea } from "@/components/chat/InputArea";
 import { ActionPanel } from "@/components/chat/ActionPanel";
+import { SwapExecutionPanel } from "@/components/chat/SwapExecutionPanel";
 import { type SeriesPoint } from "@/components/chart/MiniLineChart";
 
 type NextAction =
   | { kind: "chart"; args: { coinId: string; days: number; vs: string } }
   | { kind: "wallet"; args: { address: string } }
+  | { kind: "portfolio"; args: { address: string } }
+  | { kind: "tx_analyzer"; args: { address: string; limit: number } }
   | { kind: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; slippageBps?: number } }
+  | { kind: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string } }
+  | { kind: "contract_inspector"; args: { contractAddress: string } }
   | null;
 
 type PaymentRequirements = {
@@ -51,6 +56,7 @@ function pickAvaVoice(): SpeechSynthesisVoice | null {
 
 function useTTS() {
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
@@ -71,16 +77,27 @@ function useTTS() {
     u.voice = voiceRef.current ?? null;
     u.rate = 1.0;
     u.pitch = 1.1;
+    u.onstart = () => setIsSpeaking(true);
+    u.onend = () => setIsSpeaking(false);
+    u.onerror = () => setIsSpeaking(false);
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
   };
-  return { speak };
+
+  const stopSpeaking = () => {
+    if (typeof window === "undefined") return;
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  };
+
+  return { speak, stopSpeaking, isSpeaking };
 }
 
 export function Vox402App() {
   const orchestratorUrl = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:4000";
   const supportsSR = useMemo(canUseSpeechRecognition, []);
-  const { speak } = useTTS();
+  const { speak, stopSpeaking, isSpeaking } = useTTS();
 
   const [walletAddr, setWalletAddr] = useState<`0x${string}` | null>(null);
   const [provider, setProvider] = useState<EIP1193Provider | null>(null);
@@ -102,6 +119,13 @@ export function Vox402App() {
   const [pendingAction, setPendingAction] = useState<NextAction>(null);
   const [pending402, setPending402] = useState<PaymentRequirements | null>(null);
   const [lastSettlement, setLastSettlement] = useState<string | null>(null);
+  const [pendingSwap, setPendingSwap] = useState<{
+    quote: any;
+    needsApproval: boolean;
+    approveTx: any;
+    swapTx: any;
+    chainId: number;
+  } | null>(null);
   const voiceFinalRef = useRef<string>("");
   const [voiceCommit, setVoiceCommit] = useState<string | null>(null);
 
@@ -177,7 +201,7 @@ export function Vox402App() {
         rec.onerror = null;
         rec.onend = null;
         rec.stop?.();
-      } catch {}
+      } catch { }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supportsSR]);
@@ -285,7 +309,7 @@ export function Vox402App() {
         try {
           const settlement = JSON.parse(b64decodeUtf8(xpr));
           setLastSettlement(settlement?.transaction ?? null);
-        } catch {}
+        } catch { }
       }
 
       const json = await res.json().catch(() => ({}));
@@ -300,7 +324,7 @@ export function Vox402App() {
         try {
           const settlement = JSON.parse(b64decodeUtf8(json.xPaymentResponse));
           setLastSettlement(settlement?.transaction ?? null);
-        } catch {}
+        } catch { }
       }
 
       if (json?.status === "ok") {
@@ -341,11 +365,86 @@ export function Vox402App() {
         }
 
         if (pendingAction.kind === "swap") {
-          pushMessage({
-            role: "assistant",
-            kind: "text",
-            text: `Swap quote result:\n${JSON.stringify(json?.result, null, 2).slice(0, 1200)}`,
-          });
+          const result = json?.result;
+          const summary = result?.summary;
+          const quote = result?.quote;
+          const needsApproval = result?.needsApproval;
+          const approveTx = result?.approveTx;
+          const swapTx = result?.swapTx;
+          const chainId = result?.chainId || 43113;
+
+          // If we have swap tx data, show execution panel
+          if (quote && swapTx) {
+            setPendingSwap({
+              quote,
+              needsApproval,
+              approveTx,
+              swapTx,
+              chainId,
+            });
+            pushMessage({ role: "assistant", kind: "text", text: summary || "Ready to swap! Click the buttons below to execute." });
+            speak(needsApproval ? "You need to approve first, then swap." : "Ready to swap! Click the button to execute.");
+          } else {
+            pushMessage({ role: "assistant", kind: "text", text: summary || `Swap quote: ${JSON.stringify(result).slice(0, 500)}` });
+            speak("Got the swap quote.");
+          }
+
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        // Portfolio agent result
+        if (pendingAction.kind === "portfolio") {
+          const result = json?.result;
+          const summary = result?.summary || `Portfolio for ${result?.address}:\nAVAX: ${result?.native?.formatted || "0"} AVAX`;
+          pushMessage({ role: "assistant", kind: "text", text: summary });
+          // Read summary aloud
+          const avaxBal = result?.native?.formatted || "0";
+          const tokens = result?.tokens || [];
+          let spokenText = `Portfolio analysis complete. You have ${avaxBal} AVAX.`;
+          if (tokens.length > 0) {
+            tokens.forEach((t: any) => {
+              spokenText += ` ${t.formatted} ${t.symbol}.`;
+            });
+          }
+          speak(spokenText);
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        // Transaction analyzer result
+        if (pendingAction.kind === "tx_analyzer") {
+          const result = json?.result;
+          const summary = result?.summary?.humanReadable || `Analyzed ${result?.transactions?.length || 0} transactions.`;
+          pushMessage({ role: "assistant", kind: "text", text: summary });
+          speak("Here's the transaction analysis.");
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        // Bridge agent result
+        if (pendingAction.kind === "bridge") {
+          const summary = json?.result?.summary || "Bridge quote received.";
+          pushMessage({ role: "assistant", kind: "text", text: summary });
+          speak("Here's the bridge quote.");
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        // Contract inspector result
+        if (pendingAction.kind === "contract_inspector") {
+          const result = json?.result;
+          const summary = result?.summary || `Contract: ${result?.contractType || "Unknown"}\nVerified: ${result?.isVerified ? "Yes" : "No"}`;
+          pushMessage({ role: "assistant", kind: "text", text: summary });
+          speak("Here's the contract analysis.");
           setPendingAction(null);
           autoRunKeyRef.current = null;
           setPending402(null);
@@ -403,11 +502,11 @@ export function Vox402App() {
         message: authorization,
       });
 
-    const paymentPayload = {
-      x402Version: 1,
-      scheme: option.scheme,
-      network: option.network,
-      payload: {
+      const paymentPayload = {
+        x402Version: 1,
+        scheme: option.scheme,
+        network: option.network,
+        payload: {
           signature,
           authorization: {
             from: authorization.from,
@@ -420,12 +519,12 @@ export function Vox402App() {
         },
       };
 
-    const xPayment = b64encodeUtf8(JSON.stringify(paymentPayload));
-    pushMessage({ role: "assistant", text: "Signed USDC authorization. Retrying with X-PAYMENT…", kind: "text" });
-    await runAction(xPayment);
-  } catch (e: any) {
-    pushMessage({ role: "assistant", text: `Signing failed: ${e?.message ?? String(e)}`, kind: "text" });
-  } finally {
+      const xPayment = b64encodeUtf8(JSON.stringify(paymentPayload));
+      pushMessage({ role: "assistant", text: "Signed USDC authorization. Retrying with X-PAYMENT…", kind: "text" });
+      await runAction(xPayment);
+    } catch (e: any) {
+      pushMessage({ role: "assistant", text: `Signing failed: ${e?.message ?? String(e)}`, kind: "text" });
+    } finally {
       setSigning(false);
     }
   }
@@ -441,7 +540,7 @@ export function Vox402App() {
     if (listening) {
       try {
         rec.stop();
-      } catch {}
+      } catch { }
       return;
     }
 
@@ -481,6 +580,22 @@ export function Vox402App() {
       const a = pendingAction.args;
       ready = !!a?.tokenIn && !!a?.tokenOut && !!a?.amountIn && !!a?.recipient;
       key = `${pendingAction.kind}:${a.tokenIn}:${a.tokenOut}:${a.amountIn}:${a.recipient}:${a.slippageBps ?? 50}`;
+    } else if (pendingAction.kind === "portfolio") {
+      const a = pendingAction.args;
+      ready = !!a?.address;
+      key = `${pendingAction.kind}:${a.address}`;
+    } else if (pendingAction.kind === "tx_analyzer") {
+      const a = pendingAction.args;
+      ready = !!a?.address;
+      key = `${pendingAction.kind}:${a.address}:${a.limit}`;
+    } else if (pendingAction.kind === "bridge") {
+      const a = pendingAction.args;
+      ready = !!a?.token && !!a?.amount && !!a?.fromChain && !!a?.toChain && !!a?.recipient;
+      key = `${pendingAction.kind}:${a.token}:${a.amount}:${a.fromChain}:${a.toChain}:${a.recipient}`;
+    } else if (pendingAction.kind === "contract_inspector") {
+      const a = pendingAction.args;
+      ready = !!a?.contractAddress;
+      key = `${pendingAction.kind}:${a.contractAddress}`;
     }
 
     if (!ready || pending402 || lastSettlement || busy) return;
@@ -494,17 +609,29 @@ export function Vox402App() {
   const actionStatus: "idle" | "running" | "402_payment_required" | "signing" | "completed" = lastSettlement
     ? "completed"
     : signing
-    ? "signing"
-    : pending402
-    ? "402_payment_required"
-    : pendingAction && busy
-    ? "running"
-    : "idle";
+      ? "signing"
+      : pending402
+        ? "402_payment_required"
+        : pendingAction && busy
+          ? "running"
+          : "idle";
 
   const rawAmount = pending402?.accepts?.[0]?.maxAmountRequired;
-  const amountLabel = rawAmount ? (Number(rawAmount) / 1_000_000).toFixed(4) : "0.0000";
+  // Keep showing the amount even after settlement using a ref to avoid render issues
+  const lastPaymentAmountRef = useRef<string | null>(null);
 
-  const recipientLabel = pending402?.accepts?.[0]?.payTo ?? "—";
+  // Update ref when we get a new 402 requirement
+  if (rawAmount && rawAmount !== lastPaymentAmountRef.current) {
+    lastPaymentAmountRef.current = rawAmount;
+  }
+
+  const displayAmount = rawAmount || lastPaymentAmountRef.current;
+  const amountLabel = displayAmount ? (Number(displayAmount) / 1_000_000).toFixed(2) : "0.01";
+
+  const payToAddr = pending402?.accepts?.[0]?.payTo;
+  const recipientLabel = payToAddr
+    ? `${payToAddr.slice(0, 6)}...${payToAddr.slice(-4)}`
+    : "Agent";
 
   return (
     <div className="flex flex-col min-h-screen h-screen w-full bg-zinc-950 text-white overflow-x-hidden relative font-sans selection:bg-avax-red/30">
@@ -569,6 +696,33 @@ export function Vox402App() {
             </div>
           )}
 
+          {pendingSwap && walletAddr && provider && (
+            <div className="mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <SwapExecutionPanel
+                quote={pendingSwap.quote}
+                needsApproval={pendingSwap.needsApproval}
+                approveTx={pendingSwap.approveTx}
+                swapTx={pendingSwap.swapTx}
+                chainId={pendingSwap.chainId}
+                provider={provider}
+                walletAddr={walletAddr}
+                onComplete={(txHash) => {
+                  pushMessage({
+                    role: "assistant",
+                    kind: "text",
+                    text: `✅ Swap executed successfully! Tx: ${txHash.slice(0, 10)}...`,
+                  });
+                  speak("Swap complete!");
+                  setPendingSwap(null);
+                }}
+                onError={(error) => {
+                  pushMessage({ role: "assistant", kind: "text", text: `❌ ${error}` });
+                  speak("Swap failed. Please try again.");
+                }}
+              />
+            </div>
+          )}
+
           <div ref={messagesEndRef} className="h-4" />
         </div>
 
@@ -580,6 +734,8 @@ export function Vox402App() {
             isLoading={busy}
             onVoiceToggle={handleVoiceToggle}
             isListening={listening}
+            isSpeaking={isSpeaking}
+            onStopSpeaking={stopSpeaking}
           />
 
           <div className="text-center mt-2 pb-2">

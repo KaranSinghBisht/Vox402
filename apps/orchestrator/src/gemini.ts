@@ -1,0 +1,405 @@
+// apps/orchestrator/src/gemini.ts
+// Gemini AI integration for Ava - the master AI agent
+
+// Use model from env, default to gemini-2.5-flash
+const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || "gemini-2.5-flash";
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+// Tool definitions for function calling
+const AGENT_TOOLS = {
+    functionDeclarations: [
+        {
+            name: "call_chart_agent",
+            description: "Fetches price history charts for cryptocurrencies. Use this when the user asks about price history, charts, or price trends for any token.",
+            parameters: {
+                type: "object",
+                properties: {
+                    coinId: {
+                        type: "string",
+                        description: "CoinGecko coin ID, e.g. 'avalanche-2' for AVAX, 'bitcoin', 'ethereum', 'usd-coin' for USDC",
+                    },
+                    days: {
+                        type: "number",
+                        description: "Number of days of history to fetch (1-365). Defaults to 30.",
+                    },
+                    vs: {
+                        type: "string",
+                        description: "Currency to compare against, e.g. 'usd', 'eur'. Defaults to 'usd'.",
+                    },
+                },
+                required: ["coinId"],
+            },
+        },
+        {
+            name: "call_portfolio_agent",
+            description: "Analyzes a wallet address on Avalanche Fuji testnet. Returns native AVAX balance, ERC20 token holdings, and a summary. Use when user asks about wallet balance, holdings, or portfolio.",
+            parameters: {
+                type: "object",
+                properties: {
+                    address: {
+                        type: "string",
+                        description: "The wallet address to analyze (0x...)",
+                    },
+                },
+                required: ["address"],
+            },
+        },
+        {
+            name: "call_tx_analyzer_agent",
+            description: "Analyzes recent transactions for a wallet address on Avalanche Fuji. Categorizes transactions and provides insights. Use when user asks about transaction history, activity, or wants to understand what happened in a wallet.",
+            parameters: {
+                type: "object",
+                properties: {
+                    address: {
+                        type: "string",
+                        description: "The wallet address to analyze transactions for (0x...)",
+                    },
+                    limit: {
+                        type: "number",
+                        description: "Number of recent transactions to analyze. Defaults to 10.",
+                    },
+                },
+                required: ["address"],
+            },
+        },
+        {
+            name: "call_swap_agent",
+            description: "Gets a swap quote for exchanging tokens on Avalanche Fuji. Supports USDC, AVAX/WAVAX swaps. Use when user wants to swap, exchange, or trade tokens.",
+            parameters: {
+                type: "object",
+                properties: {
+                    tokenIn: {
+                        type: "string",
+                        description: "Token to swap from. Can be 'USDC', 'AVAX', 'WAVAX', or a token address.",
+                    },
+                    tokenOut: {
+                        type: "string",
+                        description: "Token to swap to. Can be 'USDC', 'AVAX', 'WAVAX', or a token address.",
+                    },
+                    amountIn: {
+                        type: "string",
+                        description: "Amount to swap in human-readable format (e.g., '1.5' for 1.5 tokens).",
+                    },
+                    recipient: {
+                        type: "string",
+                        description: "Address to receive the swapped tokens (usually the user's connected wallet).",
+                    },
+                },
+                required: ["tokenIn", "tokenOut", "amountIn", "recipient"],
+            },
+        },
+        {
+            name: "call_bridge_agent",
+            description: "Bridges tokens between Avalanche Fuji and other testnets (like Base Sepolia, Ethereum Sepolia). Use when user wants to transfer tokens cross-chain or bridge assets.",
+            parameters: {
+                type: "object",
+                properties: {
+                    token: {
+                        type: "string",
+                        description: "Token to bridge. Usually 'USDC' or 'AVAX'.",
+                    },
+                    amount: {
+                        type: "string",
+                        description: "Amount to bridge in human-readable format.",
+                    },
+                    fromChain: {
+                        type: "string",
+                        description: "Source chain. E.g., 'avalanche-fuji', 'base-sepolia', 'ethereum-sepolia'.",
+                    },
+                    toChain: {
+                        type: "string",
+                        description: "Destination chain. E.g., 'avalanche-fuji', 'base-sepolia', 'ethereum-sepolia'.",
+                    },
+                    recipient: {
+                        type: "string",
+                        description: "Address to receive the bridged tokens on destination chain.",
+                    },
+                },
+                required: ["token", "amount", "fromChain", "toChain", "recipient"],
+            },
+        },
+        {
+            name: "call_contract_inspector_agent",
+            description: "Inspects a smart contract on Avalanche Fuji. Provides basic analysis of contract type, functions, and risk assessment. Use when user asks about a contract, wants to check if a contract is safe, or needs contract details.",
+            parameters: {
+                type: "object",
+                properties: {
+                    contractAddress: {
+                        type: "string",
+                        description: "The contract address to inspect (0x...)",
+                    },
+                },
+                required: ["contractAddress"],
+            },
+        },
+    ],
+};
+
+const SYSTEM_PROMPT = `You are Ava, a friendly and knowledgeable AI assistant for Vox402 - a voice-first DeFi platform on Avalanche.
+
+## Your Personality
+- Warm, professional, and concise
+- You explain DeFi concepts simply when needed
+- You're proactive about suggesting what you can help with
+
+## Your Capabilities
+
+### FREE Services (no payment required)
+1. **ChartAgent** - Fetches crypto price history charts (AVAX, BTC, ETH, etc.)
+2. **PortfolioAgent** - Analyzes wallet balances and holdings on Avalanche Fuji
+3. **TxAnalyzerAgent** - Analyzes transaction history for any wallet
+4. **ContractInspectorAgent** - Basic smart contract analysis and risk assessment
+
+### PAID Services (x402 - 0.01 USDC per call)
+1. **SwapAgent** - Gets quotes and executes token swaps (USDC <-> AVAX)
+2. **BridgeAgent** - Bridges tokens between Avalanche Fuji and other testnets
+
+## Important Context
+- You operate on Avalanche Fuji TESTNET (chain ID 43113)
+- Free services work immediately after connecting wallet
+- Paid services require a USDC payment signature
+- Users connect their Core wallet to interact
+
+## How to Respond
+1. If the user's request matches an agent capability, call the appropriate agent function
+2. For FREE services, just say you'll fetch/analyze the data
+3. For PAID services, mention that it requires a small USDC payment
+4. If the user hasn't connected their wallet but needs one for the request, remind them to connect
+5. For general questions about crypto/DeFi/Avalanche, answer directly without calling an agent
+6. Be concise - this is voice-first, keep responses speakable
+
+## User's Wallet
+If the user has connected their wallet, their address will be provided in the context.
+When they ask about "my balance" or "my transactions", use their connected wallet address.
+`;
+
+export type AgentCall =
+    | { agent: "chart"; args: { coinId: string; days: number; vs: string } }
+    | { agent: "portfolio"; args: { address: string } }
+    | { agent: "tx_analyzer"; args: { address: string; limit: number } }
+    | { agent: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string } }
+    | { agent: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string } }
+    | { agent: "contract_inspector"; args: { contractAddress: string } };
+
+export interface GeminiResponse {
+    textReply: string;
+    agentCall: AgentCall | null;
+}
+
+interface ConversationMessage {
+    role: "user" | "model";
+    parts: Array<{ text?: string; functionCall?: any; functionResponse?: any }>;
+}
+
+// Conversation history for multi-turn (simple in-memory, keyed by session)
+const conversations = new Map<string, ConversationMessage[]>();
+
+export async function chat(
+    userMessage: string,
+    sessionId: string,
+    walletAddr?: string
+): Promise<GeminiResponse> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        return {
+            textReply: "I'm having trouble connecting to my AI backend. Please ensure GEMINI_API_KEY is configured.",
+            agentCall: null,
+        };
+    }
+
+    // Get or create conversation history
+    let history = conversations.get(sessionId) || [];
+
+    // Add wallet context to user message if available
+    const contextualMessage = walletAddr
+        ? `[User's connected wallet: ${walletAddr}]\n\nUser: ${userMessage}`
+        : `User: ${userMessage}`;
+
+    // Add user message to history
+    history.push({
+        role: "user",
+        parts: [{ text: contextualMessage }],
+    });
+
+    // Keep history manageable (last 10 turns)
+    if (history.length > 20) {
+        history = history.slice(-20);
+    }
+
+    try {
+        const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                systemInstruction: {
+                    parts: [{ text: SYSTEM_PROMPT }],
+                },
+                contents: history,
+                tools: [AGENT_TOOLS],
+                toolConfig: {
+                    functionCallingConfig: {
+                        mode: "AUTO",
+                    },
+                },
+                generationConfig: {
+                    temperature: 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 1024,
+                },
+            }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Gemini API error:", response.status, errorText);
+            return {
+                textReply: "I encountered an error processing your request. Please try again.",
+                agentCall: null,
+            };
+        }
+
+        const data = await response.json();
+        const candidate = data.candidates?.[0];
+        const content = candidate?.content;
+
+        if (!content?.parts?.length) {
+            return {
+                textReply: "I didn't quite understand that. Could you rephrase?",
+                agentCall: null,
+            };
+        }
+
+        // Process response parts
+        let textReply = "";
+        let agentCall: AgentCall | null = null;
+
+        for (const part of content.parts) {
+            if (part.text) {
+                textReply += part.text;
+            }
+
+            if (part.functionCall) {
+                const fc = part.functionCall;
+                const args = fc.args || {};
+
+                switch (fc.name) {
+                    case "call_chart_agent":
+                        agentCall = {
+                            agent: "chart",
+                            args: {
+                                coinId: args.coinId || "avalanche-2",
+                                days: args.days || 30,
+                                vs: args.vs || "usd",
+                            },
+                        };
+                        break;
+
+                    case "call_portfolio_agent":
+                        agentCall = {
+                            agent: "portfolio",
+                            args: {
+                                address: args.address,
+                            },
+                        };
+                        break;
+
+                    case "call_tx_analyzer_agent":
+                        agentCall = {
+                            agent: "tx_analyzer",
+                            args: {
+                                address: args.address,
+                                limit: args.limit || 10,
+                            },
+                        };
+                        break;
+
+                    case "call_swap_agent":
+                        agentCall = {
+                            agent: "swap",
+                            args: {
+                                tokenIn: args.tokenIn,
+                                tokenOut: args.tokenOut,
+                                amountIn: args.amountIn,
+                                recipient: args.recipient,
+                            },
+                        };
+                        break;
+
+                    case "call_bridge_agent":
+                        agentCall = {
+                            agent: "bridge",
+                            args: {
+                                token: args.token,
+                                amount: args.amount,
+                                fromChain: args.fromChain,
+                                toChain: args.toChain,
+                                recipient: args.recipient,
+                            },
+                        };
+                        break;
+
+                    case "call_contract_inspector_agent":
+                        agentCall = {
+                            agent: "contract_inspector",
+                            args: {
+                                contractAddress: args.contractAddress,
+                            },
+                        };
+                        break;
+                }
+            }
+        }
+
+        // Add model response to history
+        history.push({
+            role: "model",
+            parts: content.parts,
+        });
+
+        // Save updated history
+        conversations.set(sessionId, history);
+
+        // If no text reply but there's a function call, generate a default message
+        if (!textReply && agentCall) {
+            switch (agentCall.agent) {
+                case "chart":
+                    textReply = `Let me fetch that ${agentCall.args.coinId} chart for you. This will require a small USDC payment.`;
+                    break;
+                case "portfolio":
+                    textReply = `I'll analyze that wallet for you. This requires a small USDC payment.`;
+                    break;
+                case "tx_analyzer":
+                    textReply = `Let me look at the transaction history. This requires a small USDC payment.`;
+                    break;
+                case "swap":
+                    textReply = `I'll get you a swap quote. This requires a small USDC payment.`;
+                    break;
+                case "bridge":
+                    textReply = `I'll help you bridge those tokens. This requires a small USDC payment.`;
+                    break;
+                case "contract_inspector":
+                    textReply = `I'll inspect that contract for you. This requires a small USDC payment.`;
+                    break;
+            }
+        }
+
+        return { textReply, agentCall };
+    } catch (error: any) {
+        console.error("Gemini chat error:", error);
+        return {
+            textReply: `Sorry, I had trouble processing that: ${error?.message || "Unknown error"}`,
+            agentCall: null,
+        };
+    }
+}
+
+// Clear conversation history for a session
+export function clearSession(sessionId: string): void {
+    conversations.delete(sessionId);
+}
+
+// Get current conversation length
+export function getSessionLength(sessionId: string): number {
+    return conversations.get(sessionId)?.length || 0;
+}

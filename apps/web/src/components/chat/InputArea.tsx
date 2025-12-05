@@ -1,7 +1,7 @@
 // apps/web/src/components/chat/InputArea.tsx
 "use client";
 import React, { useRef } from "react";
-import { Loader2, Mic, Send } from "lucide-react";
+import { Loader2, Mic, Send, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,8 @@ export function InputArea({
   isLoading,
   onVoiceToggle,
   isListening,
+  isSpeaking,
+  onStopSpeaking,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -19,6 +21,8 @@ export function InputArea({
   isLoading: boolean;
   onVoiceToggle: () => void;
   isListening: boolean;
+  isSpeaking?: boolean;
+  onStopSpeaking?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -42,12 +46,26 @@ export function InputArea({
             <Mic className={cn("w-5 h-5", isListening && "animate-bounce")} />
           </Button>
 
+          {/* Stop Speaking Button */}
+          {isSpeaking && onStopSpeaking && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onStopSpeaking}
+              className="rounded-lg text-avax-red hover:text-white hover:bg-avax-red/20 animate-pulse"
+              title="Stop Ava speaking"
+            >
+              <VolumeX className="w-5 h-5" />
+            </Button>
+          )}
+
           <input
             ref={inputRef}
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={isListening ? "Listening..." : "Type a command or use voice..."}
+            placeholder={isListening ? "Listening..." : isSpeaking ? "Ava is speaking..." : "Type a command or use voice..."}
             className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-gray-500 font-mono text-sm px-4 h-10 outline-none"
             disabled={isLoading}
             onKeyDown={(e) => {
