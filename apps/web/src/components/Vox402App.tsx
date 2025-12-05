@@ -48,49 +48,59 @@ function canUseSpeechRecognition() {
   return typeof window !== "undefined" && (!!(window as any).webkitSpeechRecognition || !!(window as any).SpeechRecognition);
 }
 
-function pickAvaVoice(): SpeechSynthesisVoice | null {
-  const voices = window.speechSynthesis.getVoices();
-  if (!voices.length) return null;
-  const preferred =
-    voices.find((v) => /female|woman|zira|susan|victoria|samantha|tessa|karen|moira|amelie/i.test(v.name)) ?? null;
-  const en = voices.find((v) => /^en(-|_)/i.test(v.lang)) ?? voices[0];
-  return preferred ?? en ?? null;
-}
+import { playElevenLabsTTS } from "@/lib/tts";
 
 function useTTS() {
-  const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    const load = () => {
-      voiceRef.current = pickAvaVoice();
-    };
-    load();
-    window.speechSynthesis.onvoiceschanged = load;
-    return () => {
-      window.speechSynthesis.onvoiceschanged = null;
-    };
-  }, []);
+  const speak = async (text: string) => {
+    // Check if API key is configured
+    const apiKey = process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY;
 
-  const speak = (text: string) => {
-    if (typeof window === "undefined") return;
-    if (!("speechSynthesis" in window)) return;
-    const u = new SpeechSynthesisUtterance(text);
-    u.voice = voiceRef.current ?? null;
-    u.rate = 1.0;
-    u.pitch = 1.1;
-    u.onstart = () => setIsSpeaking(true);
-    u.onend = () => setIsSpeaking(false);
-    u.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
+    // Stop any current audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    setIsSpeaking(true);
+
+    if (apiKey) {
+      const audio = await playElevenLabsTTS(text, apiKey);
+      if (audio) {
+        audioRef.current = audio;
+        audio.onended = () => setIsSpeaking(false);
+        audio.onerror = () => setIsSpeaking(false);
+        return; // ElevenLabs success
+      }
+    }
+
+    // Fallback: Browser TTS
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      // Try to find a female voice for fallback
+      const voices = window.speechSynthesis.getVoices();
+      const voice = voices.find((v) => /female|woman|zira|susan|victoria|samantha/i.test(v.name));
+      if (voice) u.voice = voice;
+
+      u.onend = () => setIsSpeaking(false);
+      u.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(u);
+    } else {
+      setIsSpeaking(false);
+    }
   };
 
   const stopSpeaking = () => {
-    if (typeof window === "undefined") return;
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
     setIsSpeaking(false);
   };
 
