@@ -55,6 +55,14 @@ const agents = [
     tags: ["Cross-chain", "x402"],
     isFree: false,
   },
+  {
+    icon: Shuffle,
+    name: "YieldAgent",
+    price: "0.01 USDC",
+    desc: "Multi-step DeFi: invest in stable yield pools earning ~8% APY.",
+    tags: ["Yield", "x402"],
+    isFree: false,
+  },
 ];
 
 export function Marketplace() {
@@ -96,17 +104,17 @@ export function Marketplace() {
               <div className="p-6 h-full flex flex-col relative z-20">
                 <div className="flex justify-between items-start mb-6">
                   <div className={`p-2.5 bg-zinc-950 rounded-lg border transition-colors duration-300 shadow-inner ${agent.isFree
-                      ? "border-green-500/20 group-hover:border-green-500/50"
-                      : "border-white/10 group-hover:border-avax-red/50"
+                    ? "border-green-500/20 group-hover:border-green-500/50"
+                    : "border-white/10 group-hover:border-avax-red/50"
                     }`}>
                     <agent.icon className={`w-5 h-5 transition-colors ${agent.isFree
-                        ? "text-green-400 group-hover:text-green-300"
-                        : "text-gray-400 group-hover:text-avax-red"
+                      ? "text-green-400 group-hover:text-green-300"
+                      : "text-gray-400 group-hover:text-avax-red"
                       }`} />
                   </div>
                   <span className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition-all ${agent.isFree
-                      ? "bg-green-500/10 text-green-400 border-green-500/20"
-                      : "bg-white/5 text-gray-300 border-white/5 group-hover:bg-avax-red/10 group-hover:text-avax-red group-hover:border-avax-red/20"
+                    ? "bg-green-500/10 text-green-400 border-green-500/20"
+                    : "bg-white/5 text-gray-300 border-white/5 group-hover:bg-avax-red/10 group-hover:text-avax-red group-hover:border-avax-red/20"
                     }`}>
                     {agent.price}
                   </span>
@@ -122,10 +130,10 @@ export function Marketplace() {
                   <div className="flex gap-2">
                     {agent.tags.map((tag, tIdx) => (
                       <span key={tIdx} className={`text-[10px] px-2 py-0.5 rounded-full font-mono transition-colors ${tag === "Free"
-                          ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                          : tag === "x402"
-                            ? "bg-avax-red/10 text-avax-red border border-avax-red/20"
-                            : "bg-zinc-950 text-gray-600 border border-white/5 group-hover:border-white/10"
+                        ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                        : tag === "x402"
+                          ? "bg-avax-red/10 text-avax-red border border-avax-red/20"
+                          : "bg-zinc-950 text-gray-600 border border-white/5 group-hover:border-white/10"
                         }`}>
                         {tag}
                       </span>

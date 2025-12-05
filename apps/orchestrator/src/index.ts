@@ -39,7 +39,8 @@ type NextAction =
   | { kind: "tx_analyzer"; args: { address: string; limit: number } }
   | { kind: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; slippageBps?: number } }
   | { kind: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string } }
-  | { kind: "contract_inspector"; args: { contractAddress: string } };
+  | { kind: "contract_inspector"; args: { contractAddress: string } }
+  | { kind: "yield"; args: { amount: string; token: string; strategy: string; userAddress: string } };
 
 function agentCallToNextAction(agentCall: AgentCall, walletAddr?: string): NextAction | null {
   switch (agentCall.agent) {
@@ -76,6 +77,16 @@ function agentCallToNextAction(agentCall: AgentCall, walletAddr?: string): NextA
       return { kind: "bridge", args: agentCall.args };
     case "contract_inspector":
       return { kind: "contract_inspector", args: agentCall.args };
+    case "yield":
+      return {
+        kind: "yield",
+        args: {
+          amount: agentCall.args.amount,
+          token: agentCall.args.token || "USDC",
+          strategy: agentCall.args.strategy || "stable_yield",
+          userAddress: walletAddr || "",
+        },
+      };
     default:
       return null;
   }
@@ -165,6 +176,7 @@ const RunReq = z.object({
     }),
     z.object({ kind: z.literal("bridge"), args: z.object({ token: z.string(), amount: z.string(), fromChain: z.string(), toChain: z.string(), recipient: z.string() }) }),
     z.object({ kind: z.literal("contract_inspector"), args: z.object({ contractAddress: z.string().min(1) }) }),
+    z.object({ kind: z.literal("yield"), args: z.object({ amount: z.string(), token: z.string(), strategy: z.string(), userAddress: z.string() }) }),
   ]),
   xPayment: z.string().optional(),
 });
@@ -194,6 +206,7 @@ const TX_ANALYZER_AGENT_URL = process.env.TX_ANALYZER_AGENT_URL || "http://local
 const SWAP_AGENT_URL = process.env.SWAP_AGENT_URL || "http://localhost:4103/quote";
 const BRIDGE_AGENT_URL = process.env.BRIDGE_AGENT_URL || "http://localhost:4107/bridge";
 const CONTRACT_INSPECTOR_AGENT_URL = process.env.CONTRACT_INSPECTOR_AGENT_URL || "http://localhost:4106/inspect";
+const YIELD_AGENT_URL = process.env.YIELD_AGENT_URL || "http://localhost:4108/invest";
 
 app.post("/run", async (req, res) => {
   const parsed = RunReq.safeParse(req.body);
@@ -225,6 +238,9 @@ app.post("/run", async (req, res) => {
       break;
     case "contract_inspector":
       agentUrl = CONTRACT_INSPECTOR_AGENT_URL;
+      break;
+    case "yield":
+      agentUrl = YIELD_AGENT_URL;
       break;
     default:
       return res.status(400).json({ error: "Unknown action kind" });

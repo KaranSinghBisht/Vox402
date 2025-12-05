@@ -2,9 +2,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { ArrowRight, Check, Loader2, AlertTriangle, ArrowRightLeft } from "lucide-react";
+import { ArrowRight, Check, Loader2, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createWalletClient, custom } from "viem";
+import { createWalletClient, custom, encodeFunctionData } from "viem";
 import { avalancheFuji } from "viem/chains";
 
 interface SwapQuote {
@@ -25,11 +25,19 @@ interface SwapTx {
     value: string;
 }
 
+interface SwapArgs {
+    amountIn: string;
+    minOut: string;
+    path: string[];
+    recipient: string;
+    router: string;
+}
+
 interface SwapExecutionPanelProps {
     quote: SwapQuote;
     needsApproval: boolean;
     approveTx: SwapTx | null;
-    swapTx: SwapTx;
+    swapArgs: SwapArgs;
     chainId: number;
     provider: any;
     walletAddr: `0x${string}`;
@@ -37,11 +45,28 @@ interface SwapExecutionPanelProps {
     onError: (error: string) => void;
 }
 
+// Router ABI for swap
+const ROUTER_ABI = [
+    {
+        type: "function",
+        name: "swapExactTokensForTokens",
+        stateMutability: "nonpayable",
+        inputs: [
+            { name: "amountIn", type: "uint256" },
+            { name: "amountOutMin", type: "uint256" },
+            { name: "path", type: "address[]" },
+            { name: "to", type: "address" },
+            { name: "deadline", type: "uint256" },
+        ],
+        outputs: [{ name: "amounts", type: "uint256[]" }],
+    },
+] as const;
+
 export function SwapExecutionPanel({
     quote,
     needsApproval,
     approveTx,
-    swapTx,
+    swapArgs,
     chainId,
     provider,
     walletAddr,
@@ -80,7 +105,7 @@ export function SwapExecutionPanel({
     }
 
     async function handleSwap() {
-        if (!swapTx || !provider) return;
+        if (!swapArgs || !provider) return;
         setStep("swapping");
 
         try {
@@ -89,17 +114,33 @@ export function SwapExecutionPanel({
                 transport: custom(provider),
             });
 
+            // Build swap tx with FRESH deadline (10 minutes from now)
+            const freshDeadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+
+            const swapData = encodeFunctionData({
+                abi: ROUTER_ABI,
+                functionName: "swapExactTokensForTokens",
+                args: [
+                    BigInt(swapArgs.amountIn),
+                    BigInt(swapArgs.minOut),
+                    swapArgs.path as `0x${string}`[],
+                    swapArgs.recipient as `0x${string}`,
+                    freshDeadline,
+                ],
+            });
+
             const hash = await client.sendTransaction({
                 account: walletAddr,
-                to: swapTx.to as `0x${string}`,
-                data: swapTx.data as `0x${string}`,
-                value: BigInt(swapTx.value),
+                to: swapArgs.router as `0x${string}`,
+                data: swapData,
+                value: BigInt(0),
             });
 
             setSwapTxHash(hash);
             setStep("done");
             onComplete(hash);
         } catch (e: any) {
+            console.error("Swap error:", e);
             onError(`Swap failed: ${e?.shortMessage || e?.message || "Unknown error"}`);
             setStep("approved");
         }
@@ -142,12 +183,12 @@ export function SwapExecutionPanel({
                     {/* Step 1: Approve (if needed) */}
                     {needsApproval && (
                         <div className={`flex items-center gap-3 p-3 rounded-lg border ${step === "approving" ? "border-yellow-500/50 bg-yellow-500/5" :
-                                step === "approved" || step === "swapping" || step === "done" ? "border-green-500/50 bg-green-500/5" :
-                                    "border-white/10 bg-white/5"
+                            step === "approved" || step === "swapping" || step === "done" ? "border-green-500/50 bg-green-500/5" :
+                                "border-white/10 bg-white/5"
                             }`}>
                             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === "approved" || step === "swapping" || step === "done" ? "bg-green-500 text-black" :
-                                    step === "approving" ? "bg-yellow-500 text-black" :
-                                        "bg-white/10 text-gray-400"
+                                step === "approving" ? "bg-yellow-500 text-black" :
+                                    "bg-white/10 text-gray-400"
                                 }`}>
                                 {step === "approved" || step === "swapping" || step === "done" ? <Check className="w-4 h-4" /> : "1"}
                             </div>
@@ -169,12 +210,12 @@ export function SwapExecutionPanel({
 
                     {/* Step 2: Swap */}
                     <div className={`flex items-center gap-3 p-3 rounded-lg border ${step === "swapping" ? "border-yellow-500/50 bg-yellow-500/5" :
-                            step === "done" ? "border-green-500/50 bg-green-500/5" :
-                                "border-white/10 bg-white/5"
+                        step === "done" ? "border-green-500/50 bg-green-500/5" :
+                            "border-white/10 bg-white/5"
                         }`}>
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === "done" ? "bg-green-500 text-black" :
-                                step === "swapping" ? "bg-yellow-500 text-black" :
-                                    "bg-white/10 text-gray-400"
+                            step === "swapping" ? "bg-yellow-500 text-black" :
+                                "bg-white/10 text-gray-400"
                             }`}>
                             {step === "done" ? <Check className="w-4 h-4" /> : needsApproval ? "2" : "1"}
                         </div>

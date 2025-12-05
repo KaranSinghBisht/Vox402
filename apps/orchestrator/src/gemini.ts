@@ -132,6 +132,28 @@ const AGENT_TOOLS = {
                 required: ["contractAddress"],
             },
         },
+        {
+            name: "call_yield_agent",
+            description: "Invests tokens into a yield-generating strategy. Orchestrates multi-step DeFi: checks balance, approves if needed, and deposits into yield pool. Use when user wants to invest, earn yield, deposit into lending, or says things like 'invest in stable yield', 'earn interest on my USDC', 'put my tokens to work'.",
+            parameters: {
+                type: "object",
+                properties: {
+                    amount: {
+                        type: "string",
+                        description: "Human-readable amount to invest, e.g. '5' or '0.1'",
+                    },
+                    token: {
+                        type: "string",
+                        description: "Token to invest. Defaults to 'USDC'. Can be 'USDC' or 'AVAX'.",
+                    },
+                    strategy: {
+                        type: "string",
+                        description: "Investment strategy. 'stable_yield' for USDC lending (~8% APY), 'avax_staking' for AVAX staking (~5% APY). Defaults to 'stable_yield'.",
+                    },
+                },
+                required: ["amount"],
+            },
+        },
     ],
 };
 
@@ -153,6 +175,7 @@ const SYSTEM_PROMPT = `You are Ava, a friendly and knowledgeable AI assistant fo
 ### PAID Services (x402 - 0.01 USDC per call)
 1. **SwapAgent** - Gets quotes and executes token swaps (USDC <-> AVAX)
 2. **BridgeAgent** - Bridges tokens between Avalanche Fuji and other testnets
+3. **YieldAgent** - Invests tokens into yield-generating strategies (e.g., "invest $5 in stable yield" = ~8% APY)
 
 ## Important Context
 - You operate on Avalanche Fuji TESTNET (chain ID 43113)
@@ -179,7 +202,8 @@ export type AgentCall =
     | { agent: "tx_analyzer"; args: { address: string; limit: number } }
     | { agent: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string } }
     | { agent: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string } }
-    | { agent: "contract_inspector"; args: { contractAddress: string } };
+    | { agent: "contract_inspector"; args: { contractAddress: string } }
+    | { agent: "yield"; args: { amount: string; token?: string; strategy?: string } };
 
 export interface GeminiResponse {
     textReply: string;
@@ -344,6 +368,17 @@ export async function chat(
                             agent: "contract_inspector",
                             args: {
                                 contractAddress: args.contractAddress,
+                            },
+                        };
+                        break;
+
+                    case "call_yield_agent":
+                        agentCall = {
+                            agent: "yield",
+                            args: {
+                                amount: args.amount,
+                                token: args.token || "USDC",
+                                strategy: args.strategy || "stable_yield",
                             },
                         };
                         break;

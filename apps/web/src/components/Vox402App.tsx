@@ -14,6 +14,7 @@ import { MessageBubble, type UIMessage } from "@/components/chat/MessageBubble";
 import { InputArea } from "@/components/chat/InputArea";
 import { ActionPanel } from "@/components/chat/ActionPanel";
 import { SwapExecutionPanel } from "@/components/chat/SwapExecutionPanel";
+import { MultiStepPanel } from "@/components/chat/MultiStepPanel";
 import { type SeriesPoint } from "@/components/chart/MiniLineChart";
 
 type NextAction =
@@ -24,6 +25,7 @@ type NextAction =
   | { kind: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; slippageBps?: number } }
   | { kind: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string } }
   | { kind: "contract_inspector"; args: { contractAddress: string } }
+  | { kind: "yield"; args: { amount: string; token: string; strategy: string; userAddress: string } }
   | null;
 
 type PaymentRequirements = {
@@ -123,7 +125,15 @@ export function Vox402App() {
     quote: any;
     needsApproval: boolean;
     approveTx: any;
-    swapTx: any;
+    swapArgs: any;
+    chainId: number;
+  } | null>(null);
+  const [pendingYield, setPendingYield] = useState<{
+    strategy: any;
+    amount: string;
+    estimatedApy: number;
+    estimatedYieldYear: string;
+    steps: any[];
     chainId: number;
   } | null>(null);
   const voiceFinalRef = useRef<string>("");
@@ -370,16 +380,16 @@ export function Vox402App() {
           const quote = result?.quote;
           const needsApproval = result?.needsApproval;
           const approveTx = result?.approveTx;
-          const swapTx = result?.swapTx;
+          const swapArgs = result?.swapArgs;
           const chainId = result?.chainId || 43113;
 
-          // If we have swap tx data, show execution panel
-          if (quote && swapTx) {
+          // If we have swap args, show execution panel
+          if (quote && swapArgs) {
             setPendingSwap({
               quote,
               needsApproval,
               approveTx,
-              swapTx,
+              swapArgs,
               chainId,
             });
             pushMessage({ role: "assistant", kind: "text", text: summary || "Ready to swap! Click the buttons below to execute." });
@@ -445,6 +455,33 @@ export function Vox402App() {
           const summary = result?.summary || `Contract: ${result?.contractType || "Unknown"}\nVerified: ${result?.isVerified ? "Yes" : "No"}`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
           speak("Here's the contract analysis.");
+          setPendingAction(null);
+          autoRunKeyRef.current = null;
+          setPending402(null);
+          return;
+        }
+
+        // Yield agent result
+        if (pendingAction.kind === "yield") {
+          const result = json?.result;
+          const summary = result?.summary;
+          const steps = result?.steps;
+
+          if (result?.strategy && steps?.length) {
+            setPendingYield({
+              strategy: result.strategy,
+              amount: result.amount,
+              estimatedApy: result.estimatedApy,
+              estimatedYieldYear: result.estimatedYieldYear,
+              steps,
+              chainId: result.chainId || 43113,
+            });
+            pushMessage({ role: "assistant", kind: "text", text: summary || "Ready to invest! Follow the steps below." });
+            speak(`Investment plan ready. ${result.hasEnoughBalance ? "Click to execute." : "But you need more tokens first."}`);
+          } else {
+            pushMessage({ role: "assistant", kind: "text", text: summary || `Yield result: ${JSON.stringify(result).slice(0, 500)}` });
+            speak("Here's the investment plan.");
+          }
           setPendingAction(null);
           autoRunKeyRef.current = null;
           setPending402(null);
@@ -596,6 +633,10 @@ export function Vox402App() {
       const a = pendingAction.args;
       ready = !!a?.contractAddress;
       key = `${pendingAction.kind}:${a.contractAddress}`;
+    } else if (pendingAction.kind === "yield") {
+      const a = pendingAction.args;
+      ready = !!a?.amount && !!a?.userAddress;
+      key = `${pendingAction.kind}:${a.amount}:${a.token}:${a.strategy}:${a.userAddress}`;
     }
 
     if (!ready || pending402 || lastSettlement || busy) return;
@@ -702,7 +743,7 @@ export function Vox402App() {
                 quote={pendingSwap.quote}
                 needsApproval={pendingSwap.needsApproval}
                 approveTx={pendingSwap.approveTx}
-                swapTx={pendingSwap.swapTx}
+                swapArgs={pendingSwap.swapArgs}
                 chainId={pendingSwap.chainId}
                 provider={provider}
                 walletAddr={walletAddr}
@@ -718,6 +759,34 @@ export function Vox402App() {
                 onError={(error) => {
                   pushMessage({ role: "assistant", kind: "text", text: `❌ ${error}` });
                   speak("Swap failed. Please try again.");
+                }}
+              />
+            </div>
+          )}
+
+          {pendingYield && walletAddr && provider && (
+            <div className="mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <MultiStepPanel
+                strategy={pendingYield.strategy}
+                amount={pendingYield.amount}
+                estimatedApy={pendingYield.estimatedApy}
+                estimatedYieldYear={pendingYield.estimatedYieldYear}
+                steps={pendingYield.steps}
+                chainId={pendingYield.chainId}
+                provider={provider}
+                walletAddr={walletAddr}
+                onComplete={(txHash) => {
+                  pushMessage({
+                    role: "assistant",
+                    kind: "text",
+                    text: `🎉 Investment complete! You're now earning ${pendingYield.estimatedApy}% APY. Tx: ${txHash.slice(0, 10)}...`,
+                  });
+                  speak("Investment complete! You're now earning yield.");
+                  setPendingYield(null);
+                }}
+                onError={(error) => {
+                  pushMessage({ role: "assistant", kind: "text", text: `❌ ${error}` });
+                  speak("Investment failed. Please try again.");
                 }}
               />
             </div>

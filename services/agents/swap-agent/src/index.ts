@@ -272,7 +272,7 @@ app.post("/quote", async (req, res) => {
     }
 
     const minOut = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 min
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 min (for quote display only)
     const rate = Number(amountOut) / Number(amountInBn) * Math.pow(10, tokenInInfo.decimals - tokenOutInfo.decimals);
 
     // Build approve tx data if needed
@@ -282,15 +282,13 @@ app.post("/quote", async (req, res) => {
       value: "0",
     } : null;
 
-    // Build swap tx data
-    const swapTx = {
-      to: ROUTER,
-      data: encodeFunctionData({
-        abi: ROUTER_ABI,
-        functionName: "swapExactTokensForTokens",
-        args: [amountInBn, minOut, [tokenInAddr, tokenOutAddr], recipientAddr, deadline],
-      }),
-      value: "0",
+    // Return swap args for frontend to build tx with fresh deadline
+    const swapArgs = {
+      amountIn: amountInBn.toString(),
+      minOut: minOut.toString(),
+      path: [tokenInAddr, tokenOutAddr],
+      recipient: recipientAddr,
+      router: ROUTER,
     };
 
     const summary = [
@@ -319,12 +317,11 @@ app.post("/quote", async (req, res) => {
         minOutFormatted: formatUnits(minOut, tokenOutInfo.decimals),
         slippageBps,
         rate: rate.toFixed(6),
-        deadline: deadline.toString(),
         simulated,
       },
       needsApproval,
       approveTx,
-      swapTx,
+      swapArgs, // Raw args for frontend to build tx with fresh deadline
       chainId: CHAIN_ID,
       summary,
       meta: { paidBy: pay.payer, settlementTx: pay.txHash },
