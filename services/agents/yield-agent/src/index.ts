@@ -42,9 +42,8 @@ const CHAIN_ID = 43113 as const;
 const USDC_FUJI = "0x5425890298aed601595a70AB815c96711a31Bc65" as const;
 const WAVAX_FUJI = "0xd00ae08403b9bbb9124bb305c09058e32c39a48c" as const;
 
-// Mock Yield Vault - for demo, we use a simple address that receives deposits
-// In production, this would be a real ERC4626 vault
-const YIELD_VAULT_ADDRESS = "0x000000000000000000000000000000000000dEaD" as const; // Burn address as mock vault
+// Real ERC4626 Yield Vault deployed on Fuji
+const YIELD_VAULT_ADDRESS = "0xd2A081B94871FFE6653273ceC967f9dFbD7F8764" as const;
 
 // Yield strategies
 const YIELD_STRATEGIES = {
@@ -67,9 +66,19 @@ const YIELD_STRATEGIES = {
 // ABIs
 const ERC20_ABI = [
     { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
-    { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
+    { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "success", type: "bool" }] },
     { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
     { type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] },
+] as const;
+
+// ERC4626 Vault ABI
+const VAULT_ABI = [
+    { type: "function", name: "deposit", stateMutability: "nonpayable", inputs: [{ name: "assets", type: "uint256" }, { name: "receiver", type: "address" }], outputs: [{ name: "shares", type: "uint256" }] },
+    { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "assets", type: "uint256" }, { name: "receiver", type: "address" }, { name: "owner", type: "address" }], outputs: [{ name: "shares", type: "uint256" }] },
+    { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }] },
+    { type: "function", name: "totalAssets", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint256" }] },
+    { type: "function", name: "convertToAssets", stateMutability: "view", inputs: [{ name: "shares", type: "uint256" }], outputs: [{ name: "assets", type: "uint256" }] },
+    { type: "function", name: "getUserPosition", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "shares", type: "uint256" }, { name: "assets", type: "uint256" }, { name: "depositTime", type: "uint256" }, { name: "pendingYield", type: "uint256" }] },
 ] as const;
 
 // x402 Payment constants
@@ -254,14 +263,14 @@ app.post("/invest", async (req, res) => {
             });
         }
 
-        // Step 2: Deposit (transfer to vault)
+        // Step 2: Deposit into ERC4626 vault
         steps.push({
             step: needsApproval ? 2 : 1,
             type: "deposit",
             description: `Deposit ${amount} ${strategyInfo.tokenSymbol} into ${strategyInfo.name}`,
             tx: {
-                to: tokenAddress,
-                data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [YIELD_VAULT_ADDRESS, amountBn] }),
+                to: YIELD_VAULT_ADDRESS,
+                data: encodeFunctionData({ abi: VAULT_ABI, functionName: "deposit", args: [amountBn, userAddr] }),
                 value: "0",
             },
             status: "pending",

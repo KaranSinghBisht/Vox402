@@ -111,14 +111,14 @@ export function MultiStepPanel({
     const allComplete = stepStatuses.every(s => s === "complete");
 
     return (
-        <div className="w-full max-w-md mx-auto my-4 rounded-xl overflow-hidden border border-purple-500/30 bg-purple-500/5">
-            <div className="h-1 w-full bg-gradient-to-r from-purple-500 to-pink-500" />
+        <div className="w-full max-w-md mx-auto my-4 rounded-xl overflow-hidden border border-red-500/30 bg-red-500/5">
+            <div className="h-1 w-full bg-gradient-to-r from-red-500 to-orange-500" />
 
             <div className="p-5">
                 {/* Header */}
                 <div className="flex items-center gap-2 mb-4">
-                    <TrendingUp className="w-5 h-5 text-purple-400" />
-                    <span className="font-mono text-sm font-bold tracking-wider uppercase text-purple-400">
+                    <TrendingUp className="w-5 h-5 text-red-400" />
+                    <span className="font-mono text-sm font-bold tracking-wider uppercase text-red-400">
                         Yield Investment
                     </span>
                 </div>
@@ -157,17 +157,17 @@ export function MultiStepPanel({
                             <div
                                 key={idx}
                                 className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${status === "complete" ? "border-green-500/50 bg-green-500/5" :
-                                        status === "processing" ? "border-yellow-500/50 bg-yellow-500/5" :
-                                            status === "error" ? "border-red-500/50 bg-red-500/5" :
-                                                isActive ? "border-purple-500/50 bg-purple-500/5" :
-                                                    "border-white/10 bg-white/5 opacity-50"
+                                    status === "processing" ? "border-yellow-500/50 bg-yellow-500/5" :
+                                        status === "error" ? "border-red-500/50 bg-red-500/5" :
+                                            isActive ? "border-red-500/50 bg-red-500/5" :
+                                                "border-white/10 bg-white/5 opacity-50"
                                     }`}
                             >
                                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${status === "complete" ? "bg-green-500 text-black" :
-                                        status === "processing" ? "bg-yellow-500 text-black" :
-                                            status === "error" ? "bg-red-500 text-white" :
-                                                isActive ? "bg-purple-500 text-white" :
-                                                    "bg-white/10 text-gray-400"
+                                    status === "processing" ? "bg-yellow-500 text-black" :
+                                        status === "error" ? "bg-red-500 text-white" :
+                                            isActive ? "bg-red-500 text-white" :
+                                                "bg-white/10 text-gray-400"
                                     }`}>
                                     {status === "complete" ? <Check className="w-4 h-4" /> :
                                         status === "processing" ? <Loader2 className="w-4 h-4 animate-spin" /> :
@@ -183,7 +183,7 @@ export function MultiStepPanel({
                                         variant="primary"
                                         onClick={() => executeStep(idx)}
                                         disabled={isProcessing}
-                                        className="bg-purple-500 hover:bg-purple-600"
+                                        className="bg-red-500 hover:bg-red-600"
                                     >
                                         {step.type === "approve" ? "Approve" : step.type === "deposit" ? "Deposit" : "Execute"}
                                     </Button>
@@ -193,7 +193,7 @@ export function MultiStepPanel({
                                         href={`https://testnet.snowscan.xyz/tx/${txHashes[idx]}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-xs text-purple-400 hover:underline"
+                                        className="text-xs text-red-400 hover:underline"
                                     >
                                         View
                                     </a>
@@ -204,8 +204,8 @@ export function MultiStepPanel({
                 </div>
 
                 {allComplete && (
-                    <div className="mt-4 p-4 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/30 text-center">
-                        <div className="text-purple-400 font-bold text-lg mb-1">🎉 Investment Complete!</div>
+                    <div className="mt-4 p-4 rounded-lg bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/30 text-center">
+                        <div className="text-red-400 font-bold text-lg mb-1">🎉 Investment Complete!</div>
                         <div className="text-sm text-gray-300">
                             You invested {amount} {strategy.tokenSymbol} into {strategy.name}
                         </div>
@@ -218,3 +218,4 @@ export function MultiStepPanel({
         </div>
     );
 }
+
