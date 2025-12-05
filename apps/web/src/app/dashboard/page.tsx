@@ -4,6 +4,7 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { PortfolioCard } from "@/components/dashboard/PortfolioCard";
 import { YieldPosition } from "@/components/dashboard/YieldPosition";
 import { ActivityList } from "@/components/dashboard/ActivityList";
+import { CommandGuide } from "@/components/dashboard/CommandGuide";
 
 export default function DashboardPage() {
     return (
@@ -19,10 +20,8 @@ export default function DashboardPage() {
                             <YieldPosition />
                         </div>
 
-                        {/* Chart Area could go here later */}
-                        <div className="p-6 rounded-2xl bg-zinc-900/30 border border-white/5 h-[300px] flex items-center justify-center text-gray-600 border-dashed">
-                            Portfolio History Chart (Coming Soon)
-                        </div>
+                        {/* Voice Command Guide */}
+                        <CommandGuide />
                     </div>
 
                     {/* Activity Feed */}

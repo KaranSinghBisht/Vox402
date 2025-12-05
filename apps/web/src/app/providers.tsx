@@ -1,6 +1,12 @@
 "use client";
 
-// Simple provider wrapper - Privy removed to fix wallet provider conflicts
+import { WalletProvider } from "@/context/WalletContext";
+
+// Simple provider wrapper with WalletContext
 export function Providers({ children }: { children: React.ReactNode }) {
-    return <>{children}</>;
+    return (
+        <WalletProvider>
+            {children}
+        </WalletProvider>
+    );
 }

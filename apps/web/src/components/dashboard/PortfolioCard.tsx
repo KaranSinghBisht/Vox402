@@ -30,8 +30,22 @@ export function PortfolioCard() {
     const [avaxBalance, setAvaxBalance] = useState<string>("0.00");
     const [usdcBalance, setUsdcBalance] = useState<string>("0.00");
     const [loading, setLoading] = useState(false);
+    const [avaxPrice, setAvaxPrice] = useState<number>(0);
 
     useEffect(() => {
+        // Fetch AVAX price
+        fetch("https://api.coingecko.com/api/v3/simple/price?ids=avalanche-2&vs_currencies=usd")
+            .then(res => res.json())
+            .then(data => {
+                if (data["avalanche-2"]?.usd) {
+                    setAvaxPrice(data["avalanche-2"].usd);
+                }
+            })
+            .catch(err => {
+                console.error("Failed to fetch price:", err);
+                setAvaxPrice(40); // Fallback
+            });
+
         if (!walletAddress) {
             setAvaxBalance("0.00");
             setUsdcBalance("0.00");
@@ -94,13 +108,13 @@ export function PortfolioCard() {
 
             <div className="space-y-6 relative z-10">
                 <div>
-                    <div className="text-sm text-gray-500 mb-1">Total Net Worth</div>
+                    <div className="text-sm text-gray-500 mb-1">Total Net Worth <span className="text-[10px] opacity-50">(AVAX ${avaxPrice.toFixed(2)})</span></div>
                     <div className="text-3xl font-bold text-white flex items-baseline gap-1">
                         <span className="text-gray-500 text-lg">$</span>
                         {loading ? (
                             <span className="animate-pulse bg-white/10 rounded h-8 w-24 block" />
                         ) : (
-                            (Number(usdcBalance) + Number(avaxBalance) * 40).toFixed(2) // Mock AVAX price $40
+                            (Number(usdcBalance) + Number(avaxBalance) * (avaxPrice || 40)).toFixed(2)
                         )}
                     </div>
                 </div>
