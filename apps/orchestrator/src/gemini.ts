@@ -399,22 +399,25 @@ export async function chat(
         if (!textReply && agentCall) {
             switch (agentCall.agent) {
                 case "chart":
-                    textReply = `Let me fetch that ${agentCall.args.coinId} chart for you. This will require a small USDC payment.`;
+                    textReply = `Let me fetch that ${agentCall.args.coinId} chart for you.`;
                     break;
                 case "portfolio":
-                    textReply = `I'll analyze that wallet for you. This requires a small USDC payment.`;
+                    textReply = `I'll analyze the portfolio for you.`;
                     break;
                 case "tx_analyzer":
-                    textReply = `Let me look at the transaction history. This requires a small USDC payment.`;
+                    textReply = `Let me check the transaction history.`;
                     break;
                 case "swap":
-                    textReply = `I'll get you a swap quote. This requires a small USDC payment.`;
+                    textReply = `I'll get a swap quote. This execution costs 0.01 USDC.`;
                     break;
                 case "bridge":
-                    textReply = `I'll help you bridge those tokens. This requires a small USDC payment.`;
+                    textReply = `I'll check the bridge options. This execution costs 0.01 USDC.`;
                     break;
                 case "contract_inspector":
-                    textReply = `I'll inspect that contract for you. This requires a small USDC payment.`;
+                    textReply = `I'll inspect that contract for you.`;
+                    break;
+                case "yield":
+                    textReply = `I'll set up that yield strategy. This execution costs 0.01 USDC.`;
                     break;
             }
         }

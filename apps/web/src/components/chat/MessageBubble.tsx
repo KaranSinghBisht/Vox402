@@ -7,14 +7,14 @@ import { MiniLineChart, type SeriesPoint } from "@/components/chart/MiniLineChar
 
 export type UIMessage =
   | { id: string; role: "user" | "assistant"; text: string; ts: number; kind: "text" }
-  | { id: string; role: "assistant"; text: string; ts: number; kind: "chart"; chart: { title: string; series: SeriesPoint[] } };
+  | { id: string; role: "assistant"; text: string; ts: number; kind: "chart"; chart: { title: string; series: SeriesPoint[] }; data?: any; coinId?: string };
 
 export function MessageBubble({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("flex w-full mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500", isUser ? "justify-end" : "justify-start")}> 
-      <div className={cn("flex max-w-[85%] md:max-w-[70%] gap-3", isUser ? "flex-row-reverse" : "flex-row")}> 
+    <div className={cn("flex w-full mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500", isUser ? "justify-end" : "justify-start")}>
+      <div className={cn("flex max-w-[85%] md:max-w-[70%] gap-3", isUser ? "flex-row-reverse" : "flex-row")}>
         <div
           className={cn(
             "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border",

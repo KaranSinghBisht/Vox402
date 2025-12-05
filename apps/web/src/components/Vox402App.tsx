@@ -266,7 +266,21 @@ export function Vox402App() {
       const answer = typeof json?.reply === "string" ? json.reply : "No reply returned.";
       pushMessage({ role: "assistant", text: answer, kind: "text" });
       speak(answer);
-      setPendingAction(json?.nextAction ?? null);
+
+      // Check if this is a FREE execution that can be auto-run
+      const action = json?.nextAction;
+      if (action) {
+        if (["chart", "portfolio", "tx_analyzer", "contract_inspector"].includes(action.agent)) {
+          // Auto-run free agents immediately
+          void runActionInternal(action, null);
+          setPendingAction(null);
+        } else {
+          // Paid agents (swap, bridge, yield) need user confirmation/payment
+          setPendingAction(action);
+        }
+      } else {
+        setPendingAction(null);
+      }
     } catch (e: any) {
       pushMessage({ role: "assistant", text: `Network error: ${e?.message ?? String(e)}`, kind: "text" });
     } finally {
@@ -274,8 +288,8 @@ export function Vox402App() {
     }
   }
 
-  async function runAction(xPayment?: string) {
-    if (!pendingAction) return;
+  // Internal function to execute actions (extracted for reuse)
+  async function runActionInternal(action: any, xPayment: string | null) {
     setBusy(true);
     setPending402(null);
     setLastSettlement(null);
@@ -287,9 +301,10 @@ export function Vox402App() {
           "Content-Type": "application/json",
           ...(xPayment ? { "X-PAYMENT": xPayment } : {}),
         },
-        body: JSON.stringify({ action: pendingAction }),
+        body: JSON.stringify({ action }),
       });
 
+      // Handle x-payment-response headers
       const xpr = res.headers.get("x-payment-response") || res.headers.get("X-PAYMENT-RESPONSE");
       if (xpr) {
         try {
@@ -298,8 +313,39 @@ export function Vox402App() {
         } catch { }
       }
 
-      const json = await res.json().catch(() => ({}));
+      // Handle 402 Payment Required
+      if (res.status === 402) {
+        const header = res.headers.get("www-authenticate") || "";
+        if (header.includes("x402")) {
+          const request = parseX402Request(header);
+          if (request) {
+            setPending402(request);
+            setPendingAction(action); // Ensure pending action is set for retry
+            return; // Wait for payment
+          }
+        }
+      }
 
+      const json = await res.json();
+
+      // Handle agent specific responses
+      if (action.agent === "chart" && json.result?.data) {
+        pushMessage({
+          role: "assistant",
+          kind: "chart",
+          text: "Loading chart...",
+          chart: { title: "Loading...", series: [] },
+          data: json.result.data,
+          coinId: action.args.coinId
+        });
+      }
+
+      if (typeof json.reply === "string") {
+        pushMessage({ role: "assistant", text: json.reply, kind: "text" });
+        speak(json.reply);
+      }
+
+      // Ensure we handle Next Action Payment requirement from JSON body if present (legacy)
       if (res.status === 402) {
         setPending402(json as PaymentRequirements);
         pushMessage({ role: "assistant", text: `Payment required. ${json?.error ?? ""}`.trim(), kind: "text" });
@@ -314,11 +360,11 @@ export function Vox402App() {
       }
 
       if (json?.status === "ok") {
-        if (pendingAction.kind === "chart") {
+        if (action.kind === "chart" || action.agent === "chart") {
           const series: SeriesPoint[] = json?.result?.series ?? [];
           pushMessage({
             role: "assistant",
-            text: `Here’s AVAX (${pendingAction.args.days}d).`,
+            text: `Here’s AVAX (${action.args.days}d).`,
             kind: "chart",
             chart: { title: "AVAX", series },
           });
@@ -328,8 +374,8 @@ export function Vox402App() {
           return;
         }
 
-        if (pendingAction.kind === "wallet") {
-          const addr = json?.result?.address ?? pendingAction.args.address;
+        if (action.kind === "wallet" || action.agent === "wallet") {
+          const addr = json?.result?.address ?? action.args.address;
           const nativeWei = json?.result?.native?.wei ?? "0";
           const tokens = Array.isArray(json?.result?.tokens) ? json.result.tokens : [];
           const usdc = tokens.find((t: any) => (t?.symbol ?? "").toUpperCase() === "USDC");
@@ -350,7 +396,7 @@ export function Vox402App() {
           return;
         }
 
-        if (pendingAction.kind === "swap") {
+        if (action.kind === "swap" || action.agent === "swap") {
           const result = json?.result;
           const summary = result?.summary;
           const quote = result?.quote;
@@ -382,7 +428,7 @@ export function Vox402App() {
         }
 
         // Portfolio agent result
-        if (pendingAction.kind === "portfolio") {
+        if (action.kind === "portfolio" || action.agent === "portfolio") {
           const result = json?.result;
           const summary = result?.summary || `Portfolio for ${result?.address}:\nAVAX: ${result?.native?.formatted || "0"} AVAX`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
@@ -403,7 +449,7 @@ export function Vox402App() {
         }
 
         // Transaction analyzer result
-        if (pendingAction.kind === "tx_analyzer") {
+        if (action.kind === "tx_analyzer" || action.agent === "tx_analyzer") {
           const result = json?.result;
           const summary = result?.summary?.humanReadable || `Analyzed ${result?.transactions?.length || 0} transactions.`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
@@ -415,7 +461,7 @@ export function Vox402App() {
         }
 
         // Bridge agent result
-        if (pendingAction.kind === "bridge") {
+        if (action.kind === "bridge" || action.agent === "bridge") {
           const summary = json?.result?.summary || "Bridge quote received.";
           pushMessage({ role: "assistant", kind: "text", text: summary });
           speak("Here's the bridge quote.");
@@ -426,7 +472,7 @@ export function Vox402App() {
         }
 
         // Contract inspector result
-        if (pendingAction.kind === "contract_inspector") {
+        if (action.kind === "contract_inspector" || action.agent === "contract_inspector") {
           const result = json?.result;
           const summary = result?.summary || `Contract: ${result?.contractType || "Unknown"}\nVerified: ${result?.isVerified ? "Yes" : "No"}`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
@@ -438,7 +484,7 @@ export function Vox402App() {
         }
 
         // Yield agent result
-        if (pendingAction.kind === "yield") {
+        if (action.kind === "yield" || action.agent === "yield") {
           const result = json?.result;
           const summary = result?.summary;
           const steps = result?.steps;
@@ -466,12 +512,21 @@ export function Vox402App() {
       }
 
       pushMessage({ role: "assistant", text: `Run result: ${JSON.stringify(json).slice(0, 400)}`, kind: "text" });
+
     } catch (e: any) {
-      pushMessage({ role: "assistant", text: `Run failed: ${e?.message ?? String(e)}`, kind: "text" });
+      pushMessage({ role: "assistant", text: `Execution error: ${e?.message}`, kind: "text" });
     } finally {
       setBusy(false);
     }
   }
+
+  // Public wrapper for runAction (called by UI)
+  async function runAction(xPayment?: string) {
+    if (!pendingAction) return;
+    await runActionInternal(pendingAction, xPayment || null);
+  }
+
+
 
   async function signAndPay() {
     if (!pending402) return;
@@ -798,4 +853,15 @@ export function Vox402App() {
   );
 }
 
-export default Vox402App;
+
+function parseX402Request(header: string): PaymentRequirements | null {
+  const match = header.match(/^x402\s+(.*)$/);
+  if (!match) return null;
+  try {
+    const json = JSON.parse(b64decodeUtf8(match[1]));
+    return json as PaymentRequirements;
+  } catch {
+    return null;
+  }
+}
+
