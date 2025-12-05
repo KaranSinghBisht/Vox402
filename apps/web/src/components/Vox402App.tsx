@@ -116,14 +116,22 @@ export function Vox402App() {
 
   // Use unified wallet auth (Privy + Core)
   const { walletAddress, provider, isAuthenticated, displayName } = useWalletAuth();
-  const { sessionAccount } = useSessionWallet();
+  const {
+    sessionAccount,
+    balance: sessionBalance,
+    isLoading: sessionLoading,
+    canSpend,
+    recordSpend,
+    dailyLimit,
+    dailySpent
+  } = useSessionWallet();
   const walletAddr = walletAddress;
 
   const [messages, setMessages] = useState<UIMessage[]>([
     {
       id: crypto.randomUUID(),
       role: "assistant",
-      text: "Hi! I’m Ava. Connect Core wallet, then say: “Show AVAX 30d chart”.",
+      text: "Hi! I'm Ava. Connect Core wallet, then say: 'Show AVAX 30d chart'.",
       ts: Date.now(),
       kind: "text",
     },
@@ -239,15 +247,29 @@ export function Vox402App() {
 
   // Auto-pay effect
   useEffect(() => {
-    if (pending402 && sessionAccount && pendingAction && !busy) {
-      console.log("Auto-pay effect triggered");
+    if (pending402 && sessionAccount && pendingAction && !busy && !sessionLoading) {
       const request = pending402;
+      const option = request.accepts[0];
+
+      // Check if allowance is sufficient (approx check, assumes 6 decimals for USDC)
+      const requiredUSDC = Number(option.maxAmountRequired) / 1000000;
+      const available = Number(sessionBalance);
+
+      // Check balance
+      if (available < requiredUSDC) {
+        return; // Skip auto-pay, let manual UI show
+      }
+
+      // Check daily spending limit
+      if (!canSpend(requiredUSDC)) {
+        pushMessage({ role: "assistant", kind: "text", text: `⚠️ Daily limit reached ($${dailySpent.toFixed(2)}/$${dailyLimit}). Increase limit in Dashboard.` });
+        return;
+      }
 
       (async () => {
         try {
           pushMessage({ role: "assistant", kind: "text", text: "🤖 Paying with allowance..." });
 
-          const option = request.accepts[0];
           const client = createWalletClient({
             account: sessionAccount,
             chain: avalancheFuji,
@@ -259,8 +281,8 @@ export function Vox402App() {
             from: sessionAccount.address,
             to: option.payTo,
             value: BigInt(option.maxAmountRequired),
-            validAfter: BigInt(0), // Set to 0 to be valid immediately regardless of clock skew
-            validBefore: BigInt(now + 3600), // Valid for 1 hour
+            validAfter: BigInt(0),
+            validBefore: BigInt(now + 3600),
             nonce: randomBytes32Hex(),
           } as const;
 
@@ -300,8 +322,10 @@ export function Vox402App() {
 
           const xPayment = b64encodeUtf8(JSON.stringify(paymentPayload));
 
+          // Record the spend for daily limit tracking
+          recordSpend(requiredUSDC);
+
           // Invoke action again with payment
-          // We set pending402 to null so this effect doesn't loop
           setPending402(null);
           await runActionInternal(pendingAction, xPayment);
         } catch (e) {
@@ -310,7 +334,7 @@ export function Vox402App() {
         }
       })();
     }
-  }, [pending402, sessionAccount, pendingAction, busy]);
+  }, [pending402, sessionAccount, pendingAction, busy, sessionBalance, sessionLoading, canSpend, recordSpend, dailyLimit, dailySpent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   type NewUIMessage =
     | Omit<Extract<UIMessage, { kind: "text" }>, "id" | "ts">

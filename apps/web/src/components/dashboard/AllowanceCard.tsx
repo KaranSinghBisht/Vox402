@@ -2,19 +2,29 @@
 "use client";
 
 import { useState } from "react";
-import { Wallet, Plus, RefreshCw, Copy, ExternalLink, ShieldCheck } from "lucide-react";
+import { Plus, RefreshCw, Copy, ExternalLink, ShieldCheck, Settings } from "lucide-react";
 import { useSessionWallet } from "@/hooks/useSessionWallet";
 import { useWalletAuth } from "@/hooks/useWalletAuth";
-import { createWalletClient, custom, parseEther } from "viem";
+import { createWalletClient, custom } from "viem";
 import { avalancheFuji } from "viem/chains";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export function AllowanceCard() {
-    const { address: sessionAddress, balance, fetchBalance, isLoading } = useSessionWallet();
+    const {
+        address: sessionAddress,
+        balance,
+        fetchBalance,
+        isLoading,
+        dailyLimit,
+        dailySpent,
+        setDailyLimit
+    } = useSessionWallet();
     const { provider, walletAddress } = useWalletAuth();
     const [amount, setAmount] = useState("1");
     const [isFunding, setIsFunding] = useState(false);
+    const [showLimitSettings, setShowLimitSettings] = useState(false);
+    const [limitInput, setLimitInput] = useState(String(dailyLimit));
 
     const handleFund = async () => {
         if (!provider || !sessionAddress) {
@@ -35,9 +45,9 @@ export function AllowanceCard() {
             });
 
             const USDC_ADDR = "0x5425890298aed601595a70AB815c96711a31Bc65";
-            const amountUnits = BigInt(Number(amount) * 1000000); // 6 decimals
+            const amountUnits = BigInt(Number(amount) * 1000000);
 
-            const hash = await client.writeContract({
+            await client.writeContract({
                 address: USDC_ADDR,
                 abi: [{
                     name: "transfer",
@@ -51,15 +61,8 @@ export function AllowanceCard() {
                 args: [sessionAddress, amountUnits],
             });
 
-            toast.success("Funding transaction sent!", {
-                description: "Waiting for confirmation...",
-            });
-
-            // Wait a bit and refresh balance
-            setTimeout(() => {
-                fetchBalance();
-                toast.info("Session balance updating...");
-            }, 3000);
+            toast.success("Funding transaction sent!");
+            setTimeout(() => fetchBalance(), 3000);
 
         } catch (e: any) {
             console.error(e);
@@ -75,6 +78,19 @@ export function AllowanceCard() {
             toast.success("Session address copied");
         }
     };
+
+    const handleSaveLimit = () => {
+        const newLimit = Number(limitInput);
+        if (isNaN(newLimit) || newLimit <= 0) {
+            toast.error("Invalid limit");
+            return;
+        }
+        setDailyLimit(newLimit);
+        setShowLimitSettings(false);
+        toast.success(`Daily limit set to $${newLimit}`);
+    };
+
+    const spentPercent = dailyLimit > 0 ? Math.min((dailySpent / dailyLimit) * 100, 100) : 0;
 
     return (
         <div className="bg-zinc-900/50 border border-white/5 rounded-2xl p-6 relative overflow-hidden group">
@@ -130,6 +146,55 @@ export function AllowanceCard() {
                     )}
                 </div>
 
+                {/* Daily Spending Limit */}
+                <div className="bg-black/40 rounded-xl p-4 border border-white/5">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-gray-500 uppercase tracking-wider font-mono">Daily Limit</span>
+                        <button
+                            onClick={() => { setLimitInput(String(dailyLimit)); setShowLimitSettings(!showLimitSettings); }}
+                            className="p-1 hover:bg-white/5 rounded-full transition"
+                        >
+                            <Settings className="w-3 h-3 text-gray-500" />
+                        </button>
+                    </div>
+
+                    {showLimitSettings ? (
+                        <div className="flex gap-2 items-center">
+                            <input
+                                type="number"
+                                value={limitInput}
+                                onChange={(e) => setLimitInput(e.target.value)}
+                                className="flex-1 bg-zinc-800 border border-white/10 rounded px-2 py-1 text-sm text-white"
+                                placeholder="10"
+                            />
+                            <button
+                                onClick={handleSaveLimit}
+                                className="bg-avax-red text-white px-3 py-1 rounded text-xs font-medium"
+                            >
+                                Save
+                            </button>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="flex items-baseline gap-2 mb-2">
+                                <span className="text-lg font-mono text-white">
+                                    ${dailySpent.toFixed(2)}
+                                </span>
+                                <span className="text-sm text-gray-500">/ ${dailyLimit} today</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                <div
+                                    className={cn(
+                                        "h-full rounded-full transition-all",
+                                        spentPercent > 90 ? "bg-red-500" : spentPercent > 70 ? "bg-yellow-500" : "bg-green-500"
+                                    )}
+                                    style={{ width: `${spentPercent}%` }}
+                                />
+                            </div>
+                        </>
+                    )}
+                </div>
+
                 <div className="space-y-3">
                     <label className="text-xs text-gray-400 font-medium">Top Up Allowance</label>
                     <div className="flex gap-2">
@@ -157,10 +222,11 @@ export function AllowanceCard() {
                         </button>
                     </div>
                     <p className="text-[10px] text-gray-500 leading-relaxed">
-                        Deposited funds are stored in a local session key. Agents use this to pay for transactions automatically without popups.
+                        Agents use this to pay automatically. Daily limit protects against overspending.
                     </p>
                 </div>
             </div>
         </div>
     );
 }
+
