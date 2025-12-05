@@ -1,15 +1,18 @@
 "use client";
 
 import { WalletProvider } from "@/context/WalletContext";
-
+import { ThirdwebProvider } from "thirdweb/react";
 import { Toaster } from "sonner";
 
-// Simple provider wrapper with WalletContext
+// Provider wrapper with Thirdweb + WalletContext
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
-        <WalletProvider>
-            {children}
-            <Toaster theme="dark" position="top-center" />
-        </WalletProvider>
+        <ThirdwebProvider>
+            <WalletProvider>
+                {children}
+                <Toaster theme="dark" position="top-center" />
+            </WalletProvider>
+        </ThirdwebProvider>
     );
 }
+

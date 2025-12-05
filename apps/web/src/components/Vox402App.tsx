@@ -114,8 +114,8 @@ export function Vox402App() {
   const supportsSR = useMemo(canUseSpeechRecognition, []);
   const { speak, stopSpeaking, isSpeaking } = useTTS();
 
-  // Use unified wallet auth (Privy + Core)
-  const { walletAddress, provider, isAuthenticated, displayName } = useWalletAuth();
+  // Use unified wallet auth (Thirdweb)
+  const { walletAddress, viemWalletClient, isAuthenticated, displayName } = useWalletAuth();
   const {
     sessionAccount,
     balance: sessionBalance,
@@ -635,15 +635,12 @@ export function Vox402App() {
     if (!pending402) return;
     if (!walletAddr) return pushMessage({ role: "assistant", text: "Connect a wallet first.", kind: "text" });
 
-    const p = provider ?? (await detectProvider());
-    if (!p) return pushMessage({ role: "assistant", text: "Provider missing. Refresh + reconnect.", kind: "text" });
+    if (!viemWalletClient) return pushMessage({ role: "assistant", text: "Wallet not ready. Refresh + reconnect.", kind: "text" });
 
     setSigning(true);
     try {
-      await ensureFuji(p);
-
       const option = pending402.accepts[0];
-      const client = createWalletClient({ chain: avalancheFuji, transport: custom(p as any) });
+      const client = viemWalletClient;
 
       const now = Math.floor(Date.now() / 1000);
       const authorization = {
@@ -872,7 +869,7 @@ export function Vox402App() {
             </div>
           )}
 
-          {pendingSwap && walletAddr && provider && (
+          {pendingSwap && walletAddr && viemWalletClient && (
             <div className="mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
               <SwapExecutionPanel
                 quote={pendingSwap.quote}
@@ -880,7 +877,7 @@ export function Vox402App() {
                 approveTx={pendingSwap.approveTx}
                 swapArgs={pendingSwap.swapArgs}
                 chainId={pendingSwap.chainId}
-                provider={provider}
+                viemWalletClient={viemWalletClient}
                 walletAddr={walletAddr}
                 onComplete={(txHash) => {
                   pushMessage({
@@ -899,7 +896,7 @@ export function Vox402App() {
             </div>
           )}
 
-          {pendingYield && walletAddr && provider && (
+          {pendingYield && walletAddr && viemWalletClient && (
             <div className="mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
               <MultiStepPanel
                 strategy={pendingYield.strategy}
@@ -908,7 +905,7 @@ export function Vox402App() {
                 estimatedYieldYear={pendingYield.estimatedYieldYear}
                 steps={pendingYield.steps}
                 chainId={pendingYield.chainId}
-                provider={provider}
+                viemWalletClient={viemWalletClient}
                 walletAddr={walletAddr}
                 onComplete={(txHash) => {
                   pushMessage({

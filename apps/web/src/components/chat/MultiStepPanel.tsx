@@ -4,8 +4,6 @@
 import React, { useState } from "react";
 import { ArrowRight, Check, Loader2, TrendingUp, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createWalletClient, custom } from "viem";
-import { avalancheFuji } from "viem/chains";
 
 interface Step {
     step: number;
@@ -33,7 +31,7 @@ interface MultiStepPanelProps {
     estimatedYieldYear: string;
     steps: Step[];
     chainId: number;
-    provider: any;
+    viemWalletClient: any; // viem wallet client from thirdweb adapter
     walletAddr: `0x${string}`;
     onComplete: (txHash: string) => void;
     onError: (error: string) => void;
@@ -46,7 +44,7 @@ export function MultiStepPanel({
     estimatedYieldYear,
     steps,
     chainId,
-    provider,
+    viemWalletClient,
     walletAddr,
     onComplete,
     onError,
@@ -58,7 +56,7 @@ export function MultiStepPanel({
 
     async function executeStep(stepIndex: number) {
         const step = steps[stepIndex];
-        if (!step.tx || !provider) return;
+        if (!step.tx || !viemWalletClient) return;
 
         setIsProcessing(true);
 
@@ -70,12 +68,7 @@ export function MultiStepPanel({
         });
 
         try {
-            const client = createWalletClient({
-                chain: avalancheFuji,
-                transport: custom(provider),
-            });
-
-            const hash = await client.sendTransaction({
+            const hash = await viemWalletClient.sendTransaction({
                 account: walletAddr,
                 to: step.tx.to as `0x${string}`,
                 data: step.tx.data as `0x${string}`,

@@ -1,15 +1,20 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { createWalletClient, custom, getAddress } from "viem";
-import { avalancheFuji } from "viem/chains";
-import { detectProvider, ensureFuji, type EIP1193Provider } from "@/lib/wallet";
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import { useActiveAccount, useDisconnect, useActiveWallet } from "thirdweb/react";
+import { viemAdapter } from "thirdweb/adapters/viem";
+import { thirdwebClient } from "@/lib/thirdwebClient";
+import { avalancheFuji as thirdwebFuji } from "thirdweb/chains";
+import type { Account } from "thirdweb/wallets";
+import type { WalletClient } from "viem";
 
 interface WalletContextType {
     isAuthenticated: boolean;
     isLoading: boolean;
     walletAddress: `0x${string}` | null;
-    provider: EIP1193Provider | null;
+    provider: any; // Legacy - may be null for social logins
+    thirdwebAccount: Account | undefined; // Thirdweb account for signing
+    viemWalletClient: any; // viem-compatible wallet client from thirdweb adapter
     login: () => Promise<void>;
     logout: () => void;
     displayName: string;
@@ -20,89 +25,75 @@ const WalletContext = createContext<WalletContextType>({
     isLoading: true,
     walletAddress: null,
     provider: null,
+    thirdwebAccount: undefined,
+    viemWalletClient: null,
     login: async () => { },
     logout: () => { },
     displayName: "",
 });
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-    const [provider, setProvider] = useState<EIP1193Provider | null>(null);
-    const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
+    // Use Thirdweb's hooks for wallet state
+    const account = useActiveAccount();
+    const wallet = useActiveWallet();
+    const { disconnect } = useDisconnect();
     const [isLoading, setIsLoading] = useState(true);
 
-    // Check for existing connection on mount
+    // Track loading state
     useEffect(() => {
-        async function checkConnection() {
-            try {
-                const p = await detectProvider();
-                if (p) {
-                    // Try to get accounts without prompting (using eth_accounts usually, but requestAddresses 
-                    // often behaves silently if already authorized in many modern extensions)
-                    const client = createWalletClient({ chain: avalancheFuji, transport: custom(p as any) });
-                    // Note: Standard EIP-1193 doesn't separate 'get' vs 'request' well, 
-                    // but we rely on the extension to return silently if trusted.
-                    // Ideally we'd use 'eth_accounts' directly but viem abstracts this.
-                    // Let's rely on detection.
-
-                    // Actually, let's keep it safer: initially just check provider.
-                    // Real auto-connect requires persistance or 'eth_accounts' check.
-                    // For now, let's try to request.
-                    const accounts = await client.requestAddresses().catch(() => []);
-
-                    if (accounts.length > 0) {
-                        setProvider(p);
-                        setWalletAddress(getAddress(accounts[0]) as `0x${string}`);
-                    }
-                }
-            } catch (e) {
-                console.log("Not connected automatically");
-            } finally {
-                setIsLoading(false);
-            }
-        }
-
-        checkConnection();
+        // Give Thirdweb a moment to restore session
+        const timer = setTimeout(() => setIsLoading(false), 500);
+        return () => clearTimeout(timer);
     }, []);
 
-    const login = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const p = await detectProvider();
-            if (!p) throw new Error("Core wallet not detected. Please install Core extension.");
-
-            await ensureFuji(p);
-
-            const client = createWalletClient({ chain: avalancheFuji, transport: custom(p as any) });
-            const accounts = await client.requestAddresses();
-
-            if (accounts.length === 0) throw new Error("No accounts found");
-
-            const addr = getAddress(accounts[0]) as `0x${string}`;
-            setProvider(p);
-            setWalletAddress(addr);
-        } catch (e) {
-            console.error("Wallet connection failed:", e);
-            throw e;
-        } finally {
+    // When account changes, stop loading
+    useEffect(() => {
+        if (account) {
             setIsLoading(false);
         }
-    }, []);
+    }, [account]);
 
-    const logout = useCallback(() => {
-        setProvider(null);
-        setWalletAddress(null);
-    }, []);
+    const walletAddress = account?.address as `0x${string}` | null;
+
+    // Create viem wallet client from Thirdweb account
+    const viemWalletClient = useMemo(() => {
+        if (!account) return null;
+        try {
+            return viemAdapter.walletClient.toViem({
+                client: thirdwebClient,
+                chain: thirdwebFuji,
+                account,
+            });
+        } catch (e) {
+            console.error("Failed to create viem wallet client:", e);
+            return null;
+        }
+    }, [account]);
 
     const displayName = walletAddress
         ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
         : "";
 
+    // Login is handled by ConnectButton, but we expose a noop for API compatibility
+    const login = useCallback(async () => {
+        // ConnectButton handles login - this is for API compatibility
+        console.log("Login is handled by ConnectButton");
+    }, []);
+
+    const logout = useCallback(() => {
+        if (wallet) {
+            disconnect(wallet);
+        }
+    }, [wallet, disconnect]);
+
     return (
         <WalletContext.Provider value={{
-            isAuthenticated: !!walletAddress,
+            isAuthenticated: !!account,
             isLoading,
             walletAddress,
-            provider,
+            provider: null, // Legacy - use viemWalletClient instead
+            thirdwebAccount: account,
+            viemWalletClient,
             login,
             logout,
             displayName
@@ -115,3 +106,4 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 export function useWalletAuth() {
     return useContext(WalletContext);
 }
+

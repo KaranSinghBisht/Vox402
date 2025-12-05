@@ -4,8 +4,7 @@
 import React, { useState } from "react";
 import { ArrowRight, Check, Loader2, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { createWalletClient, custom, encodeFunctionData } from "viem";
-import { avalancheFuji } from "viem/chains";
+import { encodeFunctionData } from "viem";
 
 interface SwapQuote {
     tokenIn: string;
@@ -39,7 +38,7 @@ interface SwapExecutionPanelProps {
     approveTx: SwapTx | null;
     swapArgs: SwapArgs;
     chainId: number;
-    provider: any;
+    viemWalletClient: any; // viem wallet client from thirdweb adapter
     walletAddr: `0x${string}`;
     onComplete: (txHash: string) => void;
     onError: (error: string) => void;
@@ -92,7 +91,7 @@ export function SwapExecutionPanel({
     approveTx,
     swapArgs,
     chainId,
-    provider,
+    viemWalletClient,
     walletAddr,
     onComplete,
     onError,
@@ -104,16 +103,11 @@ export function SwapExecutionPanel({
     const [swapTxHash, setSwapTxHash] = useState<string | null>(null);
 
     async function handleApprove() {
-        if (!approveTx || !provider) return;
+        if (!approveTx || !viemWalletClient) return;
         setStep("approving");
 
         try {
-            const client = createWalletClient({
-                chain: avalancheFuji,
-                transport: custom(provider),
-            });
-
-            const hash = await client.sendTransaction({
+            const hash = await viemWalletClient.sendTransaction({
                 account: walletAddr,
                 to: approveTx.to as `0x${string}`,
                 data: approveTx.data as `0x${string}`,
@@ -129,15 +123,10 @@ export function SwapExecutionPanel({
     }
 
     async function handleSwap() {
-        if (!swapArgs || !provider) return;
+        if (!swapArgs || !viemWalletClient) return;
         setStep("swapping");
 
         try {
-            const client = createWalletClient({
-                chain: avalancheFuji,
-                transport: custom(provider),
-            });
-
             // Build swap tx with FRESH deadline (10 minutes from now)
             const freshDeadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 
@@ -187,7 +176,7 @@ export function SwapExecutionPanel({
                 });
             }
 
-            const hash = await client.sendTransaction({
+            const hash = await viemWalletClient.sendTransaction({
                 account: walletAddr,
                 to: swapArgs.router as `0x${string}`,
                 data: swapData,
