@@ -9,7 +9,8 @@ import { Hexagon, Activity, ChevronLeft } from "lucide-react";
 import { b64decodeUtf8, b64encodeUtf8 } from "@/lib/base64";
 import { randomBytes32Hex } from "@/lib/random";
 import { detectProvider, ensureFuji, type EIP1193Provider } from "@/lib/wallet";
-import { WalletConnect } from "@/components/wallet/WalletConnect";
+import { useWalletAuth } from "@/hooks/useWalletAuth";
+import { AuthButton } from "@/components/wallet/AuthButton";
 import { MessageBubble, type UIMessage } from "@/components/chat/MessageBubble";
 import { InputArea } from "@/components/chat/InputArea";
 import { ActionPanel } from "@/components/chat/ActionPanel";
@@ -101,8 +102,9 @@ export function Vox402App() {
   const supportsSR = useMemo(canUseSpeechRecognition, []);
   const { speak, stopSpeaking, isSpeaking } = useTTS();
 
-  const [walletAddr, setWalletAddr] = useState<`0x${string}` | null>(null);
-  const [provider, setProvider] = useState<EIP1193Provider | null>(null);
+  // Use unified wallet auth (Privy + Core)
+  const { walletAddress, provider, isAuthenticated, displayName } = useWalletAuth();
+  const walletAddr = walletAddress;
 
   const [messages, setMessages] = useState<UIMessage[]>([
     {
@@ -143,12 +145,7 @@ export function Vox402App() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const autoRunKeyRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const p = await detectProvider();
-      if (p) setProvider(p);
-    })();
-  }, []);
+
 
   useEffect(() => {
     if (!supportsSR) return;
@@ -236,41 +233,10 @@ export function Vox402App() {
     setMessages((prev) => [...prev, next]);
   };
 
-  async function connectWallet() {
-    try {
-      const p = provider ?? (await detectProvider());
-      if (!p) {
-        pushMessage({
-          role: "assistant",
-          text: "Can’t detect Core injection. Ensure Core extension is enabled, or open this site in Core’s in-app browser.",
-          kind: "text",
-        });
-        return;
-      }
-      setProvider(p);
-
-      await ensureFuji(p);
-
-      const client = createWalletClient({ chain: avalancheFuji, transport: custom(p as any) });
-      const accounts = await client.requestAddresses();
-      const addr = getAddress(accounts[0]) as `0x${string}`;
-      setWalletAddr(addr);
-      pushMessage({ role: "assistant", text: `Connected: ${addr}`, kind: "text" });
-    } catch (e: any) {
-      pushMessage({ role: "assistant", kind: "text", text: `Wallet connect failed: ${e?.message ?? String(e)}` });
-    }
-  }
-
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    if (trimmed.toLowerCase().includes("connect wallet")) {
-      pushMessage({ role: "user", text: trimmed, kind: "text" });
-      await connectWallet();
-      setInput("");
-      return;
-    }
 
     pushMessage({ role: "user", text: trimmed, kind: "text" });
     setInput("");
@@ -503,7 +469,6 @@ export function Vox402App() {
 
     const p = provider ?? (await detectProvider());
     if (!p) return pushMessage({ role: "assistant", text: "Provider missing. Refresh + reconnect.", kind: "text" });
-    setProvider(p);
 
     setSigning(true);
     try {
@@ -693,6 +658,14 @@ export function Vox402App() {
 
             <div className="h-5 w-px bg-white/10" />
 
+            <div className="flex items-center gap-4">
+              <Link href="/dashboard" className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2 group">
+                <Activity className="w-4 h-4 opacity-70 group-hover:opacity-100 group-hover:text-red-400 transition-colors" />
+                <span className="hidden sm:inline">Dashboard</span>
+              </Link>
+              <div className="h-5 w-px bg-white/10" />
+            </div>
+
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-gradient-to-br from-avax-red to-red-900 rounded-lg flex items-center justify-center shadow-[0_0_15px_-3px_rgba(232,65,66,0.4)]">
                 <Hexagon className="w-5 h-5 text-white" />
@@ -708,13 +681,7 @@ export function Vox402App() {
             </div>
           </div>
 
-          <WalletConnect
-            isConnected={!!walletAddr}
-            address={walletAddr}
-            networkLabel="Avalanche Fuji"
-            onConnect={connectWallet}
-            onSettings={() => pushMessage({ role: "assistant", text: "Settings panel coming soon.", kind: "text" })}
-          />
+          <AuthButton />
         </div>
       </header>
 
