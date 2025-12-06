@@ -11,6 +11,7 @@ import { randomBytes32Hex } from "@/lib/random";
 import { detectProvider, ensureFuji, type EIP1193Provider } from "@/lib/wallet";
 import { useWalletAuth } from "@/hooks/useWalletAuth";
 import { useSessionWallet } from "@/hooks/useSessionWallet";
+import { useAgentHistory } from "@/hooks/useAgentHistory";
 import { privateKeyToAccount } from "viem/accounts";
 import { AuthButton } from "@/components/wallet/AuthButton";
 import { MessageBubble, type UIMessage } from "@/components/chat/MessageBubble";
@@ -125,6 +126,7 @@ export function Vox402App() {
     dailyLimit,
     dailySpent
   } = useSessionWallet();
+  const { recordPayment } = useAgentHistory();
   const walletAddr = walletAddress;
 
   const [messages, setMessages] = useState<UIMessage[]>([
@@ -324,6 +326,18 @@ export function Vox402App() {
 
           // Record the spend for daily limit tracking
           recordSpend(requiredUSDC);
+
+          // Record payment in history
+          const agentName = pendingAction.kind === "swap" ? "SwapAgent" :
+            pendingAction.kind === "bridge" ? "BridgeAgent" :
+              pendingAction.kind === "yield" ? "YieldAgent" : "Agent";
+          recordPayment({
+            agentName,
+            action: pendingAction.kind,
+            amount: requiredUSDC.toFixed(2),
+            token: "USDC",
+            status: "success",
+          });
 
           // Invoke action again with payment
           setPending402(null);
