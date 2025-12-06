@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, RefreshCw, Copy, ExternalLink, ShieldCheck, Settings } from "lucide-react";
+import { Plus, RefreshCw, Copy, ExternalLink, ShieldCheck, Settings, ArrowDownLeft } from "lucide-react";
 import { useSessionWallet } from "@/hooks/useSessionWallet";
 import { useWalletAuth } from "@/hooks/useWalletAuth";
 import { createWalletClient, custom } from "viem";
@@ -18,11 +18,13 @@ export function AllowanceCard() {
         isLoading,
         dailyLimit,
         dailySpent,
-        setDailyLimit
+        setDailyLimit,
+        withdrawToMainWallet,
     } = useSessionWallet();
     const { provider, walletAddress } = useWalletAuth();
     const [amount, setAmount] = useState("1");
     const [isFunding, setIsFunding] = useState(false);
+    const [isWithdrawing, setIsWithdrawing] = useState(false);
     const [showLimitSettings, setShowLimitSettings] = useState(false);
     const [limitInput, setLimitInput] = useState(String(dailyLimit));
 
@@ -79,6 +81,27 @@ export function AllowanceCard() {
         }
     };
 
+    const handleWithdraw = async () => {
+        if (Number(balance) <= 0) {
+            toast.error("No funds to withdraw");
+            return;
+        }
+
+        try {
+            setIsWithdrawing(true);
+            const hash = await withdrawToMainWallet();
+            toast.success("Withdraw successful!", {
+                description: `Tx: ${hash.slice(0, 10)}...`
+            });
+            setTimeout(() => fetchBalance(), 3000);
+        } catch (e: any) {
+            console.error(e);
+            toast.error("Withdraw failed", { description: e?.message });
+        } finally {
+            setIsWithdrawing(false);
+        }
+    };
+
     const handleSaveLimit = () => {
         const newLimit = Number(limitInput);
         if (isNaN(newLimit) || newLimit <= 0) {
@@ -125,6 +148,22 @@ export function AllowanceCard() {
                         </span>
                         <span className="text-sm text-gray-500 font-bold">USDC</span>
                     </div>
+
+                    {/* Withdraw Button */}
+                    {Number(balance) > 0 && (
+                        <button
+                            onClick={handleWithdraw}
+                            disabled={isWithdrawing}
+                            className="mt-3 w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white py-2 px-3 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                            {isWithdrawing ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <ArrowDownLeft className="w-4 h-4" />
+                            )}
+                            Withdraw All to Main Wallet
+                        </button>
+                    )}
 
                     {sessionAddress && (
                         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">

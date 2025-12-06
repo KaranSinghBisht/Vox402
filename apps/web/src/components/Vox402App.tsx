@@ -110,7 +110,7 @@ function useTTS() {
 }
 
 export function Vox402App() {
-  const orchestratorUrl = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:4000";
+  // API routes - works both locally and on Vercel
   const supportsSR = useMemo(canUseSpeechRecognition, []);
   const { speak, stopSpeaking, isSpeaking } = useTTS();
 
@@ -358,7 +358,7 @@ export function Vox402App() {
 
     try {
       const payload = walletAddr ? { text: trimmed, walletAddr } : { text: trimmed };
-      const res = await fetch(`${orchestratorUrl}/chat`, {
+      const res = await fetch(`/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -397,7 +397,7 @@ export function Vox402App() {
     setLastSettlement(null);
 
     try {
-      const res = await fetch(`${orchestratorUrl}/run`, {
+      const res = await fetch(`/api/run`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -9,6 +9,63 @@ export type UIMessage =
   | { id: string; role: "user" | "assistant"; text: string; ts: number; kind: "text" }
   | { id: string; role: "assistant"; text: string; ts: number; kind: "chart"; chart: { title: string; series: SeriesPoint[] }; data?: any; coinId?: string };
 
+// Simple markdown to JSX converter for chat messages
+function renderMarkdown(text: string): React.ReactNode {
+  // Split by lines first to handle lists
+  const lines = text.split('\n');
+
+  return lines.map((line, lineIndex) => {
+    // Check for list items
+    const listMatch = line.match(/^(\s*)[*-]\s+(.+)$/);
+    if (listMatch) {
+      const content = parseInlineMarkdown(listMatch[2]);
+      return (
+        <div key={lineIndex} className="flex gap-2 ml-2">
+          <span className="text-avax-red">•</span>
+          <span>{content}</span>
+        </div>
+      );
+    }
+
+    // Regular line with inline formatting
+    const content = parseInlineMarkdown(line);
+    return lineIndex === lines.length - 1 ? (
+      <React.Fragment key={lineIndex}>{content}</React.Fragment>
+    ) : (
+      <React.Fragment key={lineIndex}>{content}<br /></React.Fragment>
+    );
+  });
+}
+
+// Parse inline markdown (bold, italic)
+function parseInlineMarkdown(text: string): React.ReactNode {
+  if (!text) return text;
+
+  // Split by bold (**text**) and italic (*text*)
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  // Process bold first
+  while (remaining) {
+    const boldMatch = remaining.match(/\*\*(.+?)\*\*/);
+    if (boldMatch && boldMatch.index !== undefined) {
+      // Add text before the bold
+      if (boldMatch.index > 0) {
+        parts.push(remaining.slice(0, boldMatch.index));
+      }
+      // Add the bold text
+      parts.push(<strong key={key++} className="font-semibold text-white">{boldMatch[1]}</strong>);
+      remaining = remaining.slice(boldMatch.index + boldMatch[0].length);
+    } else {
+      parts.push(remaining);
+      break;
+    }
+  }
+
+  return parts.length === 1 ? parts[0] : <>{parts}</>;
+}
+
 export function MessageBubble({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
 
@@ -41,7 +98,7 @@ export function MessageBubble({ message }: { message: UIMessage }) {
             )}
           >
             {message.kind === "text" ? (
-              <p className="whitespace-pre-wrap">{message.text}</p>
+              <div className="space-y-1">{renderMarkdown(message.text)}</div>
             ) : (
               <div>
                 <p className="mb-2 text-gray-400 text-xs border-b border-white/5 pb-2">Analyzing market data...</p>
@@ -62,3 +119,4 @@ export function MessageBubble({ message }: { message: UIMessage }) {
     </div>
   );
 }
+

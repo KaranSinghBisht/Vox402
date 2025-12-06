@@ -131,6 +131,49 @@ export function useSessionWallet() {
         return () => clearInterval(interval);
     }, [fetchBalance]);
 
+    // Withdraw funds back to main wallet
+    const withdrawToMainWallet = useCallback(async (amount?: string): Promise<string> => {
+        if (!sessionClient || !address || !walletAddress) {
+            throw new Error("Session wallet not initialized");
+        }
+
+        const USDC_ADDR = "0x5425890298aed601595a70AB815c96711a31Bc65";
+
+        // If no amount specified, withdraw full balance
+        let withdrawAmount: bigint;
+        if (amount) {
+            withdrawAmount = BigInt(Math.floor(Number(amount) * 1000000));
+        } else {
+            // Withdraw full balance
+            const currentBalance = await sessionClient.readContract({
+                address: USDC_ADDR,
+                abi: [{ name: "balanceOf", type: "function", inputs: [{ name: "account", type: "address" }], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" }],
+                functionName: "balanceOf",
+                args: [address],
+            }) as bigint;
+            withdrawAmount = currentBalance;
+        }
+
+        if (withdrawAmount <= BigInt(0)) {
+            throw new Error("No funds to withdraw");
+        }
+
+        const hash = await sessionClient.writeContract({
+            address: USDC_ADDR,
+            abi: [{
+                name: "transfer",
+                type: "function",
+                stateMutability: "nonpayable",
+                inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }],
+                outputs: [{ name: "", type: "bool" }]
+            }],
+            functionName: "transfer",
+            args: [walletAddress as `0x${string}`, withdrawAmount],
+        });
+
+        return hash;
+    }, [sessionClient, address, walletAddress]);
+
     return {
         sessionAccount,
         address,
@@ -143,6 +186,8 @@ export function useSessionWallet() {
         setDailyLimit,
         recordSpend,
         canSpend,
+        // Withdraw
+        withdrawToMainWallet,
     };
 }
 
