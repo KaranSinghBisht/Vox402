@@ -64,7 +64,7 @@ export function Hero({ onLaunch }: { onLaunch: () => void }) {
               variant="outline"
               size="lg"
               className="group min-w-[180px] h-12 text-base font-mono border-white/20 hover:bg-white/10 hover:border-white/40 backdrop-blur-md bg-black/40"
-              onClick={() => window.open("https://docs.avalanche.network/", "_blank")}
+              onClick={() => window.location.href = "/docs"}
             >
               <Terminal className="w-4 h-4 mr-2 text-gray-400 group-hover:text-avax-red transition-colors" />
               <span className="group-hover:text-white transition-colors">
