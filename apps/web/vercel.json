@@ -1,0 +1,15 @@
+{
+    "buildCommand": "pnpm run build",
+    "outputDirectory": ".next",
+    "framework": "nextjs",
+    "rewrites": [
+        {
+            "source": "/app/:path*",
+            "destination": "/app/:path*"
+        },
+        {
+            "source": "/dashboard/:path*",
+            "destination": "/dashboard/:path*"
+        }
+    ]
+}
