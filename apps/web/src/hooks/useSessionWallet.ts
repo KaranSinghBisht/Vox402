@@ -139,6 +139,14 @@ export function useSessionWallet() {
 
         const USDC_ADDR = "0x5425890298aed601595a70AB815c96711a31Bc65";
 
+        // Check if session wallet has enough gas (AVAX) for the transaction
+        const gasBalance = await sessionClient.getBalance({ address });
+        const minGasRequired = BigInt(0.001 * 10 ** 18); // 0.001 AVAX should be enough for gas
+
+        if (gasBalance < minGasRequired) {
+            throw new Error(`Session wallet needs AVAX for gas. Please send ~0.01 AVAX to ${address} first.`);
+        }
+
         // If no amount specified, withdraw full balance
         let withdrawAmount: bigint;
         if (amount) {

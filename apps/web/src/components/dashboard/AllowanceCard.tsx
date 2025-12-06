@@ -2,11 +2,9 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, RefreshCw, Copy, ExternalLink, ShieldCheck, Settings, ArrowDownLeft } from "lucide-react";
+import { Plus, RefreshCw, Copy, ExternalLink, ShieldCheck, Settings, ArrowDownLeft, Fuel } from "lucide-react";
 import { useSessionWallet } from "@/hooks/useSessionWallet";
 import { useWalletAuth } from "@/hooks/useWalletAuth";
-import { createWalletClient, custom } from "viem";
-import { avalancheFuji } from "viem/chains";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -21,15 +19,16 @@ export function AllowanceCard() {
         setDailyLimit,
         withdrawToMainWallet,
     } = useSessionWallet();
-    const { provider, walletAddress } = useWalletAuth();
+    const { provider, walletAddress, viemWalletClient } = useWalletAuth();
     const [amount, setAmount] = useState("1");
     const [isFunding, setIsFunding] = useState(false);
+    const [isFundingGas, setIsFundingGas] = useState(false);
     const [isWithdrawing, setIsWithdrawing] = useState(false);
     const [showLimitSettings, setShowLimitSettings] = useState(false);
     const [limitInput, setLimitInput] = useState(String(dailyLimit));
 
     const handleFund = async () => {
-        if (!provider || !sessionAddress) {
+        if (!viemWalletClient || !sessionAddress) {
             toast.error("Please connect your main wallet first");
             return;
         }
@@ -41,15 +40,11 @@ export function AllowanceCard() {
 
         try {
             setIsFunding(true);
-            const client = createWalletClient({
-                chain: avalancheFuji,
-                transport: custom(provider as any),
-            });
 
             const USDC_ADDR = "0x5425890298aed601595a70AB815c96711a31Bc65";
             const amountUnits = BigInt(Number(amount) * 1000000);
 
-            await client.writeContract({
+            await viemWalletClient.writeContract({
                 address: USDC_ADDR,
                 abi: [{
                     name: "transfer",
@@ -59,7 +54,6 @@ export function AllowanceCard() {
                     outputs: [{ name: "", type: "bool" }]
                 }],
                 functionName: "transfer",
-                account: walletAddress as `0x${string}`,
                 args: [sessionAddress, amountUnits],
             });
 
@@ -78,6 +72,31 @@ export function AllowanceCard() {
         if (sessionAddress) {
             navigator.clipboard.writeText(sessionAddress);
             toast.success("Session address copied");
+        }
+    };
+
+    // Fund session wallet with AVAX for gas
+    const handleFundGas = async () => {
+        if (!viemWalletClient || !sessionAddress) {
+            toast.error("Please connect your main wallet first");
+            return;
+        }
+
+        try {
+            setIsFundingGas(true);
+
+            // Send 0.01 AVAX for gas
+            const hash = await viemWalletClient.sendTransaction({
+                to: sessionAddress as `0x${string}`,
+                value: BigInt(0.01 * 10 ** 18), // 0.01 AVAX
+            });
+
+            toast.success("Gas funded!", { description: "0.01 AVAX sent to session wallet" });
+        } catch (e: any) {
+            console.error(e);
+            toast.error("Gas funding failed", { description: e?.message });
+        } finally {
+            setIsFundingGas(false);
         }
     };
 
@@ -249,7 +268,7 @@ export function AllowanceCard() {
                         </div>
                         <button
                             onClick={handleFund}
-                            disabled={isFunding || !provider}
+                            disabled={isFunding || !viemWalletClient}
                             className="bg-white text-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
                         >
                             {isFunding ? (
@@ -262,6 +281,23 @@ export function AllowanceCard() {
                     </div>
                     <p className="text-[10px] text-gray-500 leading-relaxed">
                         Agents use this to pay automatically. Daily limit protects against overspending.
+                    </p>
+
+                    {/* Fund Gas Button */}
+                    <button
+                        onClick={handleFundGas}
+                        disabled={isFundingGas || !viemWalletClient}
+                        className="w-full mt-2 bg-zinc-800 hover:bg-zinc-700 text-gray-300 px-4 py-2 rounded-lg text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors border border-white/10"
+                    >
+                        {isFundingGas ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                            <Fuel className="w-3 h-3" />
+                        )}
+                        Fund Gas (0.01 AVAX)
+                    </button>
+                    <p className="text-[10px] text-gray-600 leading-relaxed">
+                        Required for withdrawals. Only needed once.
                     </p>
                 </div>
             </div>
