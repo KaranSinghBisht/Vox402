@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_PRIVY_APP_ID: process.env.NEXT_PUBLIC_PRIVY_APP_ID || "",
     NEXT_PUBLIC_ORCHESTRATOR_URL: process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:4000",
     NEXT_PUBLIC_ELEVENLABS_API_KEY: process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY || "",
+    NEXT_PUBLIC_MURF_API_KEY: process.env.NEXT_PUBLIC_MURF_API_KEY || "",
   },
   // Transpile thirdweb packages
   transpilePackages: ["thirdweb"],

@@ -70,6 +70,7 @@ function useTTS() {
     setIsSpeaking(true);
 
     if (apiKey) {
+      console.log("[TTS] Calling ElevenLabs with key:", apiKey.slice(0, 8) + "...");
       const audio = await playElevenLabsTTS(text, apiKey);
       if (audio) {
         audioRef.current = audio;
@@ -181,6 +182,7 @@ export function Vox402App() {
     rec.maxAlternatives = 1;
 
     rec.onstart = () => {
+      console.log("[Speech] Recognition started");
       setListening(true);
       voiceFinalRef.current = "";
     };
@@ -195,6 +197,8 @@ export function Vox402App() {
         if (event.results[i].isFinal) finalText += chunk;
       }
 
+      console.log("[Speech] Got result:", { transcript, finalText });
+
       const trimmed = transcript.trim();
       if (trimmed) setInput(trimmed);
 
@@ -205,12 +209,18 @@ export function Vox402App() {
     rec.onerror = (event: any) => {
       setListening(false);
       const code = event?.error ?? "unknown";
+
+      // Silently ignore no-speech and aborted - these are normal
+      if (code === "no-speech" || code === "aborted") {
+        return;
+      }
+
       pushMessage({
         role: "assistant",
         kind: "text",
         text:
           code === "not-allowed"
-            ? "Mic permission blocked. Allow microphone access for localhost:3000 and try again."
+            ? "Mic permission blocked. Allow microphone access and try again."
             : `Speech recognition error: ${code}`,
       });
     };
