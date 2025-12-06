@@ -1,20 +1,20 @@
-// TTS with fallback chain: ElevenLabs → Murf AI → Browser TTS
+// TTS with Murf AI as primary (ElevenLabs disabled)
 
 export async function playElevenLabsTTS(text: string, apiKey: string): Promise<HTMLAudioElement | null> {
     if (!text) return null;
 
-    // 1. Try ElevenLabs first
-    if (apiKey) {
-        const result = await tryElevenLabs(text, apiKey);
-        if (result) return result;
-    }
-
-    // 2. Try Murf AI as fallback
+    // 1. Try Murf AI first (faster, working)
     const murfKey = process.env.NEXT_PUBLIC_MURF_API_KEY;
     if (murfKey) {
         const result = await tryMurfAI(text, murfKey);
         if (result) return result;
     }
+
+    // 2. ElevenLabs disabled - API key blocked
+    // if (apiKey) {
+    //     const result = await tryElevenLabs(text, apiKey);
+    //     if (result) return result;
+    // }
 
     // 3. Fall back to browser TTS
     return playBrowserTTS(text);

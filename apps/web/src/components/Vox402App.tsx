@@ -19,6 +19,7 @@ import { InputArea } from "@/components/chat/InputArea";
 import { ActionPanel } from "@/components/chat/ActionPanel";
 import { SwapExecutionPanel } from "@/components/chat/SwapExecutionPanel";
 import { MultiStepPanel } from "@/components/chat/MultiStepPanel";
+import { AgentChoiceModal } from "@/components/AgentChoiceModal";
 import { type SeriesPoint } from "@/components/chart/MiniLineChart";
 
 type NextAction =
@@ -164,6 +165,11 @@ export function Vox402App() {
   } | null>(null);
   const voiceFinalRef = useRef<string>("");
   const [voiceCommit, setVoiceCommit] = useState<string | null>(null);
+
+  // Registry modal state
+  const [showAgentChoice, setShowAgentChoice] = useState(false);
+  const [agentChoiceCategory, setAgentChoiceCategory] = useState<"swap" | "yield" | "analytics">("swap");
+  const [pendingUserQuery, setPendingUserQuery] = useState("");
 
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -396,12 +402,19 @@ export function Vox402App() {
       // Check if this is a FREE execution that can be auto-run
       const action = json?.nextAction;
       if (action) {
-        if (["chart", "portfolio", "tx_analyzer", "contract_inspector"].includes(action.agent)) {
+        const agentType = action.kind || action.agent; // API uses 'kind', some places use 'agent'
+        if (["chart", "portfolio", "tx_analyzer", "contract_inspector"].includes(agentType)) {
           // Auto-run free agents immediately
           void runActionInternal(action, null);
           setPendingAction(null);
+        } else if (["swap", "yield"].includes(agentType)) {
+          // Show agent choice modal for swap/yield
+          setPendingAction(action);
+          setPendingUserQuery(trimmed);
+          setAgentChoiceCategory(agentType as "swap" | "yield");
+          setShowAgentChoice(true);
         } else {
-          // Paid agents (swap, bridge, yield) need user confirmation/payment
+          // Other paid agents (bridge, etc.) - use existing flow
           setPendingAction(action);
         }
       } else {
@@ -753,6 +766,27 @@ export function Vox402App() {
     }
   };
 
+  // Handle agent selection from registry modal
+  const handleAgentSelect = (agent: { id: string; name: string; url: string; registry: string; priceUsd: number }) => {
+    setShowAgentChoice(false);
+
+    if (agent.registry === "native") {
+      // Use native agent - continue with existing flow
+      pushMessage({ role: "assistant", kind: "text", text: `🏠 Using ${agent.name}...` });
+      // Trigger the auto-pay flow by keeping pendingAction set
+      // The auto-pay useEffect will pick it up
+    } else {
+      // External agent selected
+      pushMessage({
+        role: "assistant",
+        kind: "text",
+        text: `🌐 External agent "${agent.name}" selected!\n\n⚠️ External agents are simulated in demo mode.\nIn production, this would call: ${agent.url}\n\nPrice: ${agent.priceUsd === 0 ? "FREE" : `$${agent.priceUsd.toFixed(3)}`}`
+      });
+      speak(`Selected ${agent.name} from the registry.`);
+      setPendingAction(null); // Clear pending since we're showing info only
+    }
+  };
+
   useEffect(() => {
     if (!pendingAction) return;
 
@@ -830,6 +864,15 @@ export function Vox402App() {
 
   return (
     <div className="flex flex-col min-h-screen h-screen w-full bg-zinc-950 text-white overflow-x-hidden relative font-sans selection:bg-avax-red/30">
+      {/* Agent Choice Modal */}
+      <AgentChoiceModal
+        isOpen={showAgentChoice}
+        onClose={() => setShowAgentChoice(false)}
+        category={agentChoiceCategory}
+        onSelectAgent={handleAgentSelect}
+        userQuery={pendingUserQuery}
+      />
+
       <div className="absolute inset-0 z-0 bg-noise opacity-30 pointer-events-none" />
       <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-avax-red/10 rounded-full blur-[120px] pointer-events-none" />
 
