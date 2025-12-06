@@ -6,7 +6,7 @@ import { AuthButton } from "@/components/wallet/AuthButton";
 
 export function DashboardHeader() {
     return (
-        <header className="h-16 border-b border-white/5 bg-zinc-950/50 backdrop-blur-md sticky top-0 z-10">
+        <header className="h-16 border-b border-white/5 bg-zinc-950/80 backdrop-blur-xl sticky top-0 z-50">
             <div className="container mx-auto h-full flex items-center justify-between px-4">
                 <div className="flex items-center gap-6">
                     <Link href="/app" className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors group">
