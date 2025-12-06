@@ -87,7 +87,7 @@ export function Marketplace() {
             <div className="h-8 w-[1px] bg-white/10" />
             <div className="text-right">
               <div className="text-2xl font-mono font-bold text-avax-red">
-                <DecryptedText text="2" speed={150} /> PAID
+                <DecryptedText text="3" speed={150} /> PAID
               </div>
               <div className="text-[10px] text-gray-500 uppercase tracking-widest">DeFi Actions</div>
             </div>

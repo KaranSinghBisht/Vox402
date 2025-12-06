@@ -34,7 +34,7 @@ export function Features() {
           </div>
 
           <div className="relative">
-            <div className="absolute -inset-1 bg-gradient-to-r from-avax-red to-purple-600 rounded-xl blur opacity-20" />
+            <div className="absolute -inset-1 bg-avax-red rounded-xl blur-lg opacity-10" />
             <div className="relative h-full glass-panel rounded-xl p-6 font-mono text-xs text-gray-400 overflow-hidden">
               <div className="flex gap-1.5 mb-4">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
@@ -42,7 +42,7 @@ export function Features() {
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
               </div>
               <pre className="language-json whitespace-pre-wrap">
-{`// EIP-712 Typed Data
+                {`// EIP-712 Typed Data
 {
   "types": {
     "EIP712Domain": [
@@ -63,7 +63,7 @@ export function Features() {
   },
   "message": {
     "agentId": 42,
-    "price": "50000000", // 0.05 USDC
+    "price": "10000", // 0.01 USDC
     "expiry": 1715420000
   }
 }`}

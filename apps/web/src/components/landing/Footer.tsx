@@ -42,7 +42,7 @@ export function Footer() {
         </div>
       </div>
       <div className="mt-8 text-center text-[10px] text-gray-700 font-mono">
-        BUILT ON AVALANCHE • © 2024 VOX PROTOCOL
+        BUILT ON AVALANCHE • © 2025 VOX PROTOCOL
       </div>
     </footer>
   );
