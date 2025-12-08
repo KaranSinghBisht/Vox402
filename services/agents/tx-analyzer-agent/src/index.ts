@@ -53,17 +53,90 @@ function categorizeTransaction(tx: any, address: string): string {
 app.get("/health", (_req, res) => res.json({ ok: true, agent: "tx-analyzer-agent", pricing: "FREE" }));
 
 const AnalyzeReq = z.object({
-    address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+    address: z.string().regex(/^0x[a-fA-F0-9]{40}$/).optional(),
     limit: z.number().int().min(1).max(50).optional().default(10),
+    txHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
+}).refine(data => data.address || data.txHash, {
+    message: "Either address or txHash must be provided"
 });
 
 app.post("/analyze", async (req, res) => {
     const parsed = AnalyzeReq.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "invalid_payload", details: parsed.error.flatten() });
 
-    const { address, limit } = parsed.data;
+    const { address, limit, txHash } = parsed.data;
 
     try {
+        // Single transaction lookup by hash
+        if (txHash) {
+            const txUrl = `${SNOWTRACE_API_URL}?module=proxy&action=eth_getTransactionByHash&txhash=${txHash}`;
+            const receiptUrl = `${SNOWTRACE_API_URL}?module=proxy&action=eth_getTransactionReceipt&txhash=${txHash}`;
+
+            const [txResponse, receiptResponse] = await Promise.all([
+                fetch(txUrl),
+                fetch(receiptUrl),
+            ]);
+
+            const txData: any = await txResponse.json();
+            const receiptData: any = await receiptResponse.json();
+
+            if (!txData.result || txData.result === null) {
+                return res.status(404).json({ error: "Transaction not found", txHash });
+            }
+
+            const tx = txData.result;
+            const receipt = receiptData.result;
+            const valueWei = BigInt(tx.value || "0");
+            const input = tx.input || "";
+
+            // Determine transaction type
+            let txType = "transfer";
+            if (!tx.to) {
+                txType = "contract_creation";
+            } else if (input && input !== "0x" && input.length > 10) {
+                const sig = input.slice(0, 10).toLowerCase();
+                if (sig === "0xa9059cbb") txType = "token_transfer";
+                else if (sig === "0x095ea7b3") txType = "token_approval";
+                else if (sig === "0x38ed1739" || sig === "0x7ff36ab5" || sig === "0x18cbafe5") txType = "swap";
+                else txType = "contract_interaction";
+            }
+
+            const summary = [
+                `📋 Transaction Analysis`,
+                ``,
+                `Hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`,
+                `From: ${tx.from}`,
+                `To: ${tx.to || "(Contract Creation)"}`,
+                `Value: ${formatEther(valueWei)} AVAX`,
+                `Type: ${txType.replace(/_/g, " ")}`,
+                `Status: ${receipt?.status === "0x1" ? "✅ Success" : receipt?.status === "0x0" ? "❌ Failed" : "⏳ Pending"}`,
+                `Block: ${parseInt(tx.blockNumber, 16)}`,
+            ].join("\n");
+
+            return res.json({
+                txHash,
+                transaction: {
+                    hash: tx.hash,
+                    from: tx.from,
+                    to: tx.to,
+                    value: tx.value,
+                    valueFormatted: formatEther(valueWei),
+                    gasPrice: tx.gasPrice,
+                    blockNumber: parseInt(tx.blockNumber, 16),
+                    input: input.length > 100 ? input.slice(0, 100) + "..." : input,
+                    type: txType,
+                    status: receipt?.status === "0x1" ? "success" : receipt?.status === "0x0" ? "failed" : "pending",
+                },
+                summary,
+                meta: { pricing: "FREE" },
+            });
+        }
+
+        // Address transaction history lookup
+        if (!address) {
+            return res.status(400).json({ error: "Address is required for transaction history" });
+        }
+
         const url = `${SNOWTRACE_API_URL}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=${limit}&sort=desc`;
         const response = await fetch(url);
         const data: any = await response.json();

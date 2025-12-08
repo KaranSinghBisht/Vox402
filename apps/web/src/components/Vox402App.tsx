@@ -172,12 +172,13 @@ export function Vox402App() {
   const [pendingUserQuery, setPendingUserQuery] = useState("");
 
   // TTS mute state (persisted in localStorage)
-  const [isMuted, setIsMuted] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("vox402-muted") === "true";
-    }
-    return false;
-  });
+  // Initialize to false to avoid hydration mismatch, then sync from localStorage
+  const [isMuted, setIsMuted] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("vox402-muted");
+    if (stored === "true") setIsMuted(true);
+  }, []);
 
   const toggleMute = () => {
     setIsMuted(prev => {
@@ -427,27 +428,30 @@ export function Vox402App() {
       const json = await res.json().catch(() => ({}));
       const answer = typeof json?.reply === "string" ? json.reply : "No reply returned.";
       pushMessage({ role: "assistant", text: answer, kind: "text" });
-      smartSpeak(answer);
 
       // Check if this is a FREE execution that can be auto-run
       const action = json?.nextAction;
       if (action) {
         const agentType = action.kind || action.agent; // API uses 'kind', some places use 'agent'
         if (["chart", "portfolio", "tx_analyzer", "contract_inspector"].includes(agentType)) {
-          // Auto-run free agents immediately
+          // For free agents, DON'T speak initial reply - agent result will speak
           void runActionInternal(action, null);
           setPendingAction(null);
         } else if (["swap", "yield"].includes(agentType)) {
           // Show agent choice modal for swap/yield
+          smartSpeak(answer); // Speak the payment prompt
           setPendingAction(action);
           setPendingUserQuery(trimmed);
           setAgentChoiceCategory(agentType as "swap" | "yield");
           setShowAgentChoice(true);
         } else {
           // Other paid agents (bridge, etc.) - use existing flow
+          smartSpeak(answer);
           setPendingAction(action);
         }
       } else {
+        // No action, just a conversational response
+        smartSpeak(answer);
         setPendingAction(null);
       }
     } catch (e: any) {
@@ -621,7 +625,10 @@ export function Vox402App() {
         // Transaction analyzer result
         if (action.kind === "tx_analyzer" || action.agent === "tx_analyzer") {
           const result = json?.result;
-          const summary = result?.summary?.humanReadable || `Analyzed ${result?.transactions?.length || 0} transactions.`;
+          // Handle both single tx analysis (summary is string) and address history (summary.humanReadable)
+          const summary = typeof result?.summary === 'string'
+            ? result.summary
+            : result?.summary?.humanReadable || `Analyzed ${result?.transactions?.length || 0} transactions.`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
           smartSpeak("Transaction analysis ready.");
           setPendingAction(null);
@@ -841,8 +848,9 @@ export function Vox402App() {
       key = `${pendingAction.kind}:${a.address}`;
     } else if (pendingAction.kind === "tx_analyzer") {
       const a = pendingAction.args;
-      ready = !!a?.address;
-      key = `${pendingAction.kind}:${a.address}:${a.limit}`;
+      // Ready if we have either an address OR a txHash
+      ready = !!a?.address || !!a?.txHash;
+      key = `${pendingAction.kind}:${a.address || ''}:${a.txHash || ''}:${a.limit}`;
     } else if (pendingAction.kind === "bridge") {
       const a = pendingAction.args;
       ready = !!a?.token && !!a?.amount && !!a?.fromChain && !!a?.toChain && !!a?.recipient;

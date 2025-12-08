@@ -271,9 +271,21 @@ export async function POST(request: NextRequest) {
         }
 
         // Call agent: external (local dev) or internal (Vercel)
-        const { status, body: agentBody, xPaymentResponse } = isVercel
-            ? await callInternalAgent(agentEndpoint, agentArgs, xPayment)
-            : await callExternalAgent(agentUrl, agentArgs, xPayment);
+        // With fallback: if external agent fails, try internal route
+        let agentResult: { status: number; body: any; xPaymentResponse?: string };
+
+        if (isVercel) {
+            agentResult = await callInternalAgent(agentEndpoint, agentArgs, xPayment);
+        } else {
+            agentResult = await callExternalAgent(agentUrl, agentArgs, xPayment);
+            // Fallback to internal route if external agent is unreachable
+            if (agentResult.status === 502 && agentEndpoint) {
+                console.log(`External agent at ${agentUrl} unreachable, falling back to internal route ${agentEndpoint}`);
+                agentResult = await callInternalAgent(agentEndpoint, agentArgs, xPayment);
+            }
+        }
+
+        const { status, body: agentBody, xPaymentResponse } = agentResult;
 
         // Create response with x-payment-response header if present
         const responseHeaders: Record<string, string> = {};

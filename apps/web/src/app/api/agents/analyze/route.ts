@@ -56,29 +56,78 @@ export async function POST(request: NextRequest) {
             const valueWei = BigInt(tx.value || "0");
             const input = tx.input || "";
 
-            // Determine transaction type
+            // Determine transaction type and decode details
             let txType = "transfer";
+            let tokenTransferInfo: { from?: string; to?: string; amount?: string; token?: string } | null = null;
+
             if (!tx.to) {
                 txType = "contract_creation";
             } else if (input && input !== "0x" && input.length > 10) {
                 const sig = input.slice(0, 10).toLowerCase();
-                if (sig === "0xa9059cbb") txType = "token_transfer";
+
+                // Standard ERC-20 transfer: transfer(address,uint256)
+                if (sig === "0xa9059cbb") {
+                    txType = "token_transfer";
+                    if (input.length >= 138) {
+                        const toAddr = "0x" + input.slice(34, 74);
+                        const amountHex = input.slice(74, 138);
+                        const amount = BigInt("0x" + amountHex);
+                        tokenTransferInfo = { to: toAddr, amount: amount.toString() };
+                    }
+                }
+                // Token approval: approve(address,uint256)
                 else if (sig === "0x095ea7b3") txType = "token_approval";
+                // Swaps
                 else if (sig === "0x38ed1739" || sig === "0x7ff36ab5" || sig === "0x18cbafe5") txType = "swap";
+                // EIP-3009 transferWithAuthorization (x402 payments!)
+                else if (sig === "0xe3ee160e") {
+                    txType = "x402_payment";
+                    if (input.length >= 202) {
+                        const fromAddr = "0x" + input.slice(34, 74);
+                        const toAddr = "0x" + input.slice(98, 138);
+                        const amountHex = input.slice(138, 202);
+                        const amount = BigInt("0x" + amountHex);
+                        // USDC has 6 decimals
+                        const amountFormatted = (Number(amount) / 1_000_000).toFixed(2);
+                        tokenTransferInfo = { from: fromAddr, to: toAddr, amount: amountFormatted, token: "USDC" };
+                    }
+                }
+                // receiveWithAuthorization (EIP-3009)
+                else if (sig === "0xef55bec6") {
+                    txType = "x402_payment";
+                }
                 else txType = "contract_interaction";
             }
 
-            const summary = [
+            // Build summary with decoded info
+            const summaryLines = [
                 `📋 Transaction Analysis`,
                 ``,
                 `Hash: ${txHash.slice(0, 10)}...${txHash.slice(-8)}`,
                 `From: ${tx.from}`,
                 `To: ${tx.to || "(Contract Creation)"}`,
-                `Value: ${formatEther(valueWei)} AVAX`,
-                `Type: ${txType.replace(/_/g, " ")}`,
-                `Status: ${receipt?.status === "0x1" ? "✅ Success" : receipt?.status === "0x0" ? "❌ Failed" : "⏳ Pending"}`,
-                `Block: ${parseInt(tx.blockNumber, 16)}`,
-            ].join("\n");
+            ];
+
+            if (valueWei > 0n) {
+                summaryLines.push(`Value: ${formatEther(valueWei)} AVAX`);
+            }
+
+            // Add decoded token transfer info
+            if (tokenTransferInfo) {
+                if (txType === "x402_payment") {
+                    summaryLines.push(`💳 x402 Payment: ${tokenTransferInfo.amount} ${tokenTransferInfo.token || "tokens"}`);
+                    if (tokenTransferInfo.from) summaryLines.push(`   Payer: ${tokenTransferInfo.from.slice(0, 10)}...${tokenTransferInfo.from.slice(-6)}`);
+                    if (tokenTransferInfo.to) summaryLines.push(`   Recipient: ${tokenTransferInfo.to.slice(0, 10)}...${tokenTransferInfo.to.slice(-6)}`);
+                } else if (txType === "token_transfer" && tokenTransferInfo.to) {
+                    summaryLines.push(`🪙 Token Transfer to: ${tokenTransferInfo.to.slice(0, 10)}...${tokenTransferInfo.to.slice(-6)}`);
+                }
+            }
+
+            summaryLines.push(`Type: ${txType.replace(/_/g, " ")}`);
+            summaryLines.push(`Status: ${receipt?.status === "0x1" ? "✅ Success" : receipt?.status === "0x0" ? "❌ Failed" : "⏳ Pending"}`);
+            summaryLines.push(`Block: ${parseInt(tx.blockNumber, 16)}`);
+
+            const summary = summaryLines.join("\n");
 
             return NextResponse.json({
                 txHash,
@@ -93,6 +142,7 @@ export async function POST(request: NextRequest) {
                     input: input.length > 100 ? input.slice(0, 100) + "..." : input,
                     type: txType,
                     status: receipt?.status === "0x1" ? "success" : receipt?.status === "0x0" ? "failed" : "pending",
+                    tokenTransfer: tokenTransferInfo,
                 },
                 summary,
                 meta: { pricing: "FREE" },
