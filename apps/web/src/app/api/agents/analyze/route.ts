@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
                 `To: ${tx.to || "(Contract Creation)"}`,
             ];
 
-            if (valueWei > 0n) {
+            if (valueWei > BigInt(0)) {
                 summaryLines.push(`Value: ${formatEther(valueWei)} AVAX`);
             }
 
