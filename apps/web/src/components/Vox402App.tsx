@@ -26,7 +26,7 @@ type NextAction =
   | { kind: "chart"; args: { coinId: string; days: number; vs: string } }
   | { kind: "wallet"; args: { address: string } }
   | { kind: "portfolio"; args: { address: string } }
-  | { kind: "tx_analyzer"; args: { address: string; limit: number } }
+  | { kind: "tx_analyzer"; args: { address?: string; limit?: number; txHash?: string } }
   | { kind: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; slippageBps?: number } }
   | { kind: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string } }
   | { kind: "contract_inspector"; args: { contractAddress: string } }
@@ -170,6 +170,36 @@ export function Vox402App() {
   const [showAgentChoice, setShowAgentChoice] = useState(false);
   const [agentChoiceCategory, setAgentChoiceCategory] = useState<"swap" | "yield" | "analytics">("swap");
   const [pendingUserQuery, setPendingUserQuery] = useState("");
+
+  // TTS mute state (persisted in localStorage)
+  const [isMuted, setIsMuted] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("vox402-muted") === "true";
+    }
+    return false;
+  });
+
+  const toggleMute = () => {
+    setIsMuted(prev => {
+      const newVal = !prev;
+      localStorage.setItem("vox402-muted", String(newVal));
+      if (newVal) stopSpeaking();
+      return newVal;
+    });
+  };
+
+  // Smart speak - cleans up text and respects mute
+  const smartSpeak = (text: string) => {
+    if (isMuted) return;
+    // Clean up the text for TTS
+    const cleaned = text
+      .replace(/0x[a-fA-F0-9]{6,}/g, (addr) => addr.slice(0, 6) + '...' + addr.slice(-4)) // Shorten addresses
+      .replace(/\d+\.\d{6,}/g, (num) => parseFloat(num).toFixed(2)) // Shorten decimals
+      .replace(/https?:\/\/[^\s]+/g, "link") // Replace URLs
+      .replace(/\n+/g, ". ") // Replace newlines
+      .slice(0, 200); // Max 200 chars for speech
+    speak(cleaned);
+  };
 
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -397,7 +427,7 @@ export function Vox402App() {
       const json = await res.json().catch(() => ({}));
       const answer = typeof json?.reply === "string" ? json.reply : "No reply returned.";
       pushMessage({ role: "assistant", text: answer, kind: "text" });
-      speak(answer);
+      smartSpeak(answer);
 
       // Check if this is a FREE execution that can be auto-run
       const action = json?.nextAction;
@@ -482,7 +512,7 @@ export function Vox402App() {
 
       if (typeof json.reply === "string") {
         pushMessage({ role: "assistant", text: json.reply, kind: "text" });
-        speak(json.reply);
+        smartSpeak(json.reply);
       }
 
       // Ensure we handle Next Action Payment requirement from JSON body if present (legacy)
@@ -558,7 +588,7 @@ export function Vox402App() {
             speak(needsApproval ? "You need to approve first, then swap." : "Ready to swap! Click the button to execute.");
           } else {
             pushMessage({ role: "assistant", kind: "text", text: summary || `Swap quote: ${JSON.stringify(result).slice(0, 500)}` });
-            speak("Got the swap quote.");
+            smartSpeak("Got your swap quote.");
           }
 
           setPendingAction(null);
@@ -581,7 +611,7 @@ export function Vox402App() {
               spokenText += ` ${t.formatted} ${t.symbol}.`;
             });
           }
-          speak(spokenText);
+          smartSpeak(spokenText);
           setPendingAction(null);
           autoRunKeyRef.current = null;
           setPending402(null);
@@ -593,7 +623,7 @@ export function Vox402App() {
           const result = json?.result;
           const summary = result?.summary?.humanReadable || `Analyzed ${result?.transactions?.length || 0} transactions.`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
-          speak("Here's the transaction analysis.");
+          smartSpeak("Transaction analysis ready.");
           setPendingAction(null);
           autoRunKeyRef.current = null;
           setPending402(null);
@@ -604,7 +634,7 @@ export function Vox402App() {
         if (action.kind === "bridge" || action.agent === "bridge") {
           const summary = json?.result?.summary || "Bridge quote received.";
           pushMessage({ role: "assistant", kind: "text", text: summary });
-          speak("Here's the bridge quote.");
+          smartSpeak("Bridge quote ready.");
           setPendingAction(null);
           autoRunKeyRef.current = null;
           setPending402(null);
@@ -616,7 +646,7 @@ export function Vox402App() {
           const result = json?.result;
           const summary = result?.summary || `Contract: ${result?.contractType || "Unknown"}\nVerified: ${result?.isVerified ? "Yes" : "No"}`;
           pushMessage({ role: "assistant", kind: "text", text: summary });
-          speak("Here's the contract analysis.");
+          smartSpeak("Contract analysis complete.");
           setPendingAction(null);
           autoRunKeyRef.current = null;
           setPending402(null);
@@ -642,7 +672,7 @@ export function Vox402App() {
             speak(`Investment plan ready. ${result.hasEnoughBalance ? "Click to execute." : "But you need more tokens first."}`);
           } else {
             pushMessage({ role: "assistant", kind: "text", text: summary || `Yield result: ${JSON.stringify(result).slice(0, 500)}` });
-            speak("Here's the investment plan.");
+            smartSpeak("Investment plan ready.");
           }
           setPendingAction(null);
           autoRunKeyRef.current = null;
@@ -1004,6 +1034,8 @@ export function Vox402App() {
             isListening={listening}
             isSpeaking={isSpeaking}
             onStopSpeaking={stopSpeaking}
+            isMuted={isMuted}
+            onToggleMute={toggleMute}
           />
 
           <div className="text-center mt-2 pb-2">

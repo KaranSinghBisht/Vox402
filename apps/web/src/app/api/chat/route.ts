@@ -35,7 +35,7 @@ type NextAction =
     | { kind: "chart"; args: { coinId: string; days: number; vs: string } }
     | { kind: "wallet"; args: { address: string } }
     | { kind: "portfolio"; args: { address: string } }
-    | { kind: "tx_analyzer"; args: { address: string; limit: number } }
+    | { kind: "tx_analyzer"; args: { address?: string; limit?: number; txHash?: string } }
     | { kind: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; slippageBps?: number; network?: string; chainId?: number } }
     | { kind: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string; network?: string } }
     | { kind: "contract_inspector"; args: { contractAddress: string } }

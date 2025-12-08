@@ -30,36 +30,40 @@ const voxTheme = darkTheme({
 
 export function AuthButton() {
     return (
-        <ConnectButton
-            client={thirdwebClient}
-            chain={avalancheFuji}
-            wallets={wallets}
-            connectModal={{
-                size: "compact",
-                title: "Connect to Vox402",
-                showThirdwebBranding: false,
-            }}
-            theme={voxTheme}
-            connectButton={{
-                label: "Connect Wallet",
-                style: {
-                    fontSize: "12px",
-                    fontWeight: "500",
-                    borderRadius: "9999px",
-                    padding: "8px 16px",
-                    background: "#E84142",
-                    boxShadow: "0 0 15px -3px rgba(232,65,66,0.3)",
-                },
-            }}
-            detailsButton={{
-                style: {
-                    fontSize: "12px",
-                    borderRadius: "9999px",
-                    padding: "8px 16px",
-                    background: "rgba(24,24,27,0.5)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                },
-            }}
-        />
+        // suppressHydrationWarning to mute Thirdweb's nested button issue
+        <div suppressHydrationWarning>
+            <ConnectButton
+                client={thirdwebClient}
+                chain={avalancheFuji}
+                wallets={wallets}
+                connectModal={{
+                    size: "compact",
+                    title: "Connect to Vox402",
+                    showThirdwebBranding: false,
+                }}
+                theme={voxTheme}
+                connectButton={{
+                    label: "Connect Wallet",
+                    style: {
+                        fontSize: "12px",
+                        fontWeight: "500",
+                        borderRadius: "9999px",
+                        padding: "8px 16px",
+                        background: "#E84142",
+                        boxShadow: "0 0 15px -3px rgba(232,65,66,0.3)",
+                    },
+                }}
+                detailsButton={{
+                    style: {
+                        fontSize: "12px",
+                        borderRadius: "9999px",
+                        padding: "8px 16px",
+                        background: "rgba(24,24,27,0.5)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                    },
+                }}
+            />
+        </div>
     );
 }
+

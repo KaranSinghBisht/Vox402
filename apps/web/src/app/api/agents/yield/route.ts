@@ -7,8 +7,14 @@ import { settleAgentPayment, createX402Response, USDC_FUJI, WAVAX_FUJI, CHAIN_ID
 // Real ERC4626 Yield Vault deployed on Fuji
 const YIELD_VAULT_ADDRESS = "0xd2A081B94871FFE6653273ceC967f9dFbD7F8764" as Address;
 
-// Yield strategies
-const YIELD_STRATEGIES = {
+// Yield strategies - NOTE: Only USDC vault is deployed
+const YIELD_STRATEGIES: Record<string, {
+    name: string;
+    apy: number;
+    token: Address;
+    tokenSymbol: string;
+    description: string;
+}> = {
     stable_yield: {
         name: "Stable USDC Vault",
         apy: 8.5,
@@ -16,13 +22,8 @@ const YIELD_STRATEGIES = {
         tokenSymbol: "USDC",
         description: "Low-risk USDC lending pool",
     },
-    avax_staking: {
-        name: "AVAX Staking",
-        apy: 5.2,
-        token: WAVAX_FUJI,
-        tokenSymbol: "WAVAX",
-        description: "Native AVAX liquid staking",
-    },
+    // avax_staking is disabled - requires separate WAVAX vault deployment
+    // The current vault only accepts USDC deposits
 };
 
 // ABIs

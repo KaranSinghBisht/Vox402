@@ -4,7 +4,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBridgeQuote, CHAIN_IDS } from "@/lib/agents/bridge";
 import { getMainnetSwapQuote, SWAP_CONFIG } from "@/lib/agents/swap";
 
-// Agent URL configuration - for local dev or external deployment
+// Agent URL configuration
+// Local dev: use external agent services running on localhost
+// Vercel production: use internal Next.js API routes (no external agents available)
+const isVercel = !!process.env.VERCEL;
+
+const getBaseUrl = () => {
+    if (process.env.NEXT_PUBLIC_VERCEL_URL) return `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
+    return "http://localhost:3000";
+};
+
+// External agent URLs (local dev only)
 const WALLET_AGENT_URL = process.env.WALLET_AGENT_URL || "http://localhost:4102/balances";
 const PORTFOLIO_AGENT_URL = process.env.PORTFOLIO_AGENT_URL || "http://localhost:4104/analyze";
 const TX_ANALYZER_AGENT_URL = process.env.TX_ANALYZER_AGENT_URL || "http://localhost:4105/analyze";
@@ -126,6 +136,7 @@ async function inlineBridgeAgent(args: {
     }
 }
 
+// Call external agent services (local dev)
 async function callExternalAgent(
     agentUrl: string,
     args: any,
@@ -153,6 +164,37 @@ async function callExternalAgent(
     }
 }
 
+// Call internal Next.js API routes (Vercel production)
+async function callInternalAgent(
+    endpoint: string,
+    args: any,
+    xPayment?: string
+): Promise<{ status: number; body: any; xPaymentResponse?: string }> {
+    const baseUrl = getBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
+
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (xPayment) headers["X-PAYMENT"] = xPayment;
+
+    try {
+        const r = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(args),
+        });
+
+        const xPaymentResponse = r.headers.get("x-payment-response") || r.headers.get("X-PAYMENT-RESPONSE") || undefined;
+        const body = await r.json().catch(() => ({}));
+
+        return { status: r.status, body, xPaymentResponse };
+    } catch (error: any) {
+        return {
+            status: 502,
+            body: { error: "agent_unreachable", message: error?.message },
+        };
+    }
+}
+
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
@@ -169,10 +211,13 @@ export async function POST(request: NextRequest) {
         const network = action.args?.network?.toLowerCase() === "mainnet" ? "mainnet" : "testnet";
 
         let agentUrl = "";
+        let agentEndpoint = "";
         let agentArgs = action.args;
         let inlineAgent: "chart" | "bridge" | "swap_mainnet" | null = null;
 
         // Route to appropriate agent
+        // Local dev: use external localhost agents
+        // Vercel: use internal Next.js API routes
         switch (action.kind) {
             case "chart":
                 inlineAgent = "chart";
@@ -181,21 +226,25 @@ export async function POST(request: NextRequest) {
                 inlineAgent = "bridge";
                 break;
             case "swap":
-                // Swaps are testnet-only using external agent with x402
                 agentUrl = SWAP_AGENT_URL;
+                agentEndpoint = "/api/agents/swap";
                 break;
             case "wallet":
             case "portfolio":
                 agentUrl = action.kind === "wallet" ? WALLET_AGENT_URL : PORTFOLIO_AGENT_URL;
+                agentEndpoint = "/api/agents/portfolio";
                 break;
             case "tx_analyzer":
                 agentUrl = TX_ANALYZER_AGENT_URL;
+                agentEndpoint = "/api/agents/analyze";
                 break;
             case "contract_inspector":
                 agentUrl = CONTRACT_INSPECTOR_AGENT_URL;
+                agentEndpoint = "/api/agents/inspect";
                 break;
             case "yield":
                 agentUrl = YIELD_AGENT_URL;
+                agentEndpoint = "/api/agents/yield";
                 break;
             default:
                 return NextResponse.json({ error: "Unknown action kind" }, { status: 400 });
@@ -221,12 +270,10 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: "ok", result });
         }
 
-        // Proxy to external agent
-        const { status, body: agentBody, xPaymentResponse } = await callExternalAgent(
-            agentUrl,
-            agentArgs,
-            xPayment
-        );
+        // Call agent: external (local dev) or internal (Vercel)
+        const { status, body: agentBody, xPaymentResponse } = isVercel
+            ? await callInternalAgent(agentEndpoint, agentArgs, xPayment)
+            : await callExternalAgent(agentUrl, agentArgs, xPayment);
 
         // Create response with x-payment-response header if present
         const responseHeaders: Record<string, string> = {};

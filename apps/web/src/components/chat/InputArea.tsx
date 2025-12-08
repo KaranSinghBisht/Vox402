@@ -1,7 +1,7 @@
 // apps/web/src/components/chat/InputArea.tsx
 "use client";
 import React, { useRef } from "react";
-import { Loader2, Mic, Send, VolumeX } from "lucide-react";
+import { Loader2, Mic, Send, VolumeX, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,8 @@ export function InputArea({
   isListening,
   isSpeaking,
   onStopSpeaking,
+  isMuted,
+  onToggleMute,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -23,6 +25,8 @@ export function InputArea({
   isListening: boolean;
   isSpeaking?: boolean;
   onStopSpeaking?: () => void;
+  isMuted?: boolean;
+  onToggleMute?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -32,6 +36,7 @@ export function InputArea({
         <div className="absolute -inset-1 bg-gradient-to-r from-avax-red/20 via-white/10 to-avax-red/20 rounded-xl blur opacity-0 group-focus-within:opacity-100 transition duration-500" />
 
         <div className="relative flex items-center bg-zinc-900 border border-white/10 rounded-xl p-2 shadow-2xl">
+          {/* Voice input button */}
           <Button
             type="button"
             variant="ghost"
@@ -46,15 +51,34 @@ export function InputArea({
             <Mic className={cn("w-5 h-5", isListening && "animate-bounce")} />
           </Button>
 
-          {/* Stop Speaking Button */}
-          {isSpeaking && onStopSpeaking && (
+          {/* Mute TTS Toggle */}
+          {onToggleMute && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={onToggleMute}
+              className={cn(
+                "rounded-lg transition-all duration-300",
+                isMuted
+                  ? "text-gray-500 hover:text-gray-300"
+                  : "text-avax-red hover:text-red-400"
+              )}
+              title={isMuted ? "Unmute Ava" : "Mute Ava"}
+            >
+              {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            </Button>
+          )}
+
+          {/* Stop Speaking Button (shows when speaking) */}
+          {isSpeaking && onStopSpeaking && !isMuted && (
             <Button
               type="button"
               variant="ghost"
               size="icon"
               onClick={onStopSpeaking}
-              className="rounded-lg text-avax-red hover:text-white hover:bg-avax-red/20 animate-pulse"
-              title="Stop Ava speaking"
+              className="rounded-lg text-yellow-500 hover:text-white hover:bg-yellow-500/20 animate-pulse"
+              title="Stop speaking"
             >
               <VolumeX className="w-5 h-5" />
             </Button>

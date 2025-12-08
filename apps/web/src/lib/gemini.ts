@@ -1,7 +1,16 @@
 // apps/web/src/lib/gemini.ts
 // Gemini AI integration for Ava - the master AI agent
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || "gemini-2.5-flash";
+import {
+    canMakeRequest,
+    getCachedResponse,
+    cacheResponse,
+    recordRequest,
+    handleRateLimitError,
+    getUsageStats,
+} from "./rate-limiter";
+
+const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || "gemini-2.0-flash";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // Tool definitions for function calling
@@ -45,20 +54,24 @@ const AGENT_TOOLS = {
         },
         {
             name: "call_tx_analyzer_agent",
-            description: "Analyzes recent transactions for a wallet address on Avalanche Fuji. Categorizes transactions and provides insights. Use when user asks about transaction history, activity, or wants to understand what happened in a wallet.",
+            description: "Analyzes transactions on Avalanche Fuji. Can analyze either: (1) recent transaction history for a wallet address, OR (2) a specific transaction by its hash. Use txHash when user provides a specific 0x... transaction hash to analyze.",
             parameters: {
                 type: "object",
                 properties: {
                     address: {
                         type: "string",
-                        description: "The wallet address to analyze transactions for (0x...)",
+                        description: "The wallet address to analyze transactions for (0x...). Optional if txHash is provided.",
                     },
                     limit: {
                         type: "number",
                         description: "Number of recent transactions to analyze. Defaults to 10.",
                     },
+                    txHash: {
+                        type: "string",
+                        description: "Specific transaction hash to analyze (0x...). If provided, analyzes this single transaction instead of wallet history.",
+                    },
                 },
-                required: ["address"],
+                required: [],
             },
         },
         {
@@ -89,7 +102,7 @@ const AGENT_TOOLS = {
         },
         {
             name: "call_bridge_agent",
-            description: "Bridges tokens cross-chain between major EVM networks using MAINNET only. Uses LI.FI for real cross-chain transfers. Supports USDC, AVAX, ETH, MATIC between Avalanche, Ethereum, Base, Polygon, Arbitrum. This uses REAL funds. Tell the user: 'This will bridge your real tokens on mainnet. Would you like to proceed?' if they confirm, execute the bridge.",
+            description: "Bridges tokens cross-chain on MAINNET ONLY (not testnets like Sepolia or Fuji). Uses LI.FI for Avalanche, Ethereum, Base, Polygon, Arbitrum. IMPORTANT: If user asks about testnet bridging, explain that bridge only works on mainnet due to LI.FI liquidity requirements. Do NOT attempt to bridge on testnets - politely explain this limitation.",
             parameters: {
                 type: "object",
                 properties: {
@@ -133,21 +146,21 @@ const AGENT_TOOLS = {
         },
         {
             name: "call_yield_agent",
-            description: "Invests tokens into a yield-generating strategy. Orchestrates multi-step DeFi: checks balance, approves if needed, and deposits into yield pool. Use when user wants to invest, earn yield, deposit into lending, or says things like 'invest in stable yield', 'earn interest on my USDC', 'put my tokens to work'.",
+            description: "Invests USDC into a yield-generating vault (~8.5% APY). Currently only supports USDC deposits. Use when user wants to invest, earn yield, deposit into lending. NOTE: AVAX staking is not available yet - only USDC yield works.",
             parameters: {
                 type: "object",
                 properties: {
                     amount: {
                         type: "string",
-                        description: "Human-readable amount to invest, e.g. '5' or '0.1'",
+                        description: "Human-readable amount of USDC to invest, e.g. '5' or '0.1'",
                     },
                     token: {
                         type: "string",
-                        description: "Token to invest. Defaults to 'USDC'. Can be 'USDC' or 'AVAX'.",
+                        description: "Token to invest. Currently only 'USDC' is supported.",
                     },
                     strategy: {
                         type: "string",
-                        description: "Investment strategy. 'stable_yield' for USDC lending (~8% APY), 'avax_staking' for AVAX staking (~5% APY). Defaults to 'stable_yield'.",
+                        description: "Investment strategy. Only 'stable_yield' is available (~8.5% APY).",
                     },
                 },
                 required: ["amount"],
@@ -198,7 +211,7 @@ When they ask about "my balance" or "my transactions", use their connected walle
 export type AgentCall =
     | { agent: "chart"; args: { coinId: string; days: number; vs: string } }
     | { agent: "portfolio"; args: { address: string } }
-    | { agent: "tx_analyzer"; args: { address: string; limit: number } }
+    | { agent: "tx_analyzer"; args: { address?: string; limit?: number; txHash?: string } }
     | { agent: "swap"; args: { tokenIn: string; tokenOut: string; amountIn: string; recipient: string; network?: string } }
     | { agent: "bridge"; args: { token: string; amount: string; fromChain: string; toChain: string; recipient: string; network?: string } }
     | { agent: "contract_inspector"; args: { contractAddress: string } }
@@ -228,6 +241,29 @@ export async function chat(
             textReply: "I'm having trouble connecting to my AI backend. Please ensure GEMINI_API_KEY is configured.",
             agentCall: null,
         };
+    }
+
+    // Check for cached response first
+    const cached = getCachedResponse(userMessage, walletAddr);
+    if (cached) {
+        console.log("[Gemini] Using cached response");
+        return cached;
+    }
+
+    // Check rate limits before making request
+    const rateCheck = canMakeRequest();
+    if (!rateCheck.allowed) {
+        const stats = getUsageStats();
+        console.warn(`[Gemini] Rate limit: ${rateCheck.reason}`);
+        return {
+            textReply: `⚠️ ${rateCheck.reason} (Used ${stats.daily}/${stats.limit} today)`,
+            agentCall: null,
+        };
+    }
+
+    // Log remaining requests
+    if (rateCheck.remaining !== undefined && rateCheck.remaining <= 5) {
+        console.warn(`[Gemini] Warning: Only ${rateCheck.remaining} requests remaining today`);
     }
 
     // Get or create conversation history
@@ -273,9 +309,22 @@ export async function chat(
             }),
         });
 
+        // Record this request for rate limiting
+        recordRequest();
+
         if (!response.ok) {
             const errorText = await response.text();
             console.error("Gemini API error:", response.status, errorText);
+
+            // Handle rate limit errors specially
+            if (response.status === 429) {
+                const errorMessage = handleRateLimitError({ message: errorText });
+                return {
+                    textReply: errorMessage,
+                    agentCall: null,
+                };
+            }
+
             return {
                 textReply: "I encountered an error processing your request. Please try again.",
                 agentCall: null,
@@ -333,6 +382,7 @@ export async function chat(
                             args: {
                                 address: args.address,
                                 limit: args.limit || 10,
+                                txHash: args.txHash,
                             },
                         };
                         break;
@@ -423,7 +473,13 @@ export async function chat(
             }
         }
 
-        return { textReply, agentCall };
+        // Cache successful response (only for non-agent-call responses to avoid stale data)
+        const result = { textReply, agentCall };
+        if (!agentCall) {
+            cacheResponse(userMessage, walletAddr, result);
+        }
+
+        return result;
     } catch (error: any) {
         console.error("Gemini chat error:", error);
         return {
