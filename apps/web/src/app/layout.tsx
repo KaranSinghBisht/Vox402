@@ -16,6 +16,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Vox402 - Voice-First DeFi on Avalanche",
   description: "Talk to the blockchain. Pay only for what you use. Voice AI assistant with x402 micropayments.",
+  icons: {
+    icon: "/favicon.png",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: "Vox402 - Voice-First DeFi",
+    description: "AI-powered voice assistant for DeFi on Avalanche",
+    images: ["/logo.png"],
+  },
 };
 
 export default function RootLayout({
