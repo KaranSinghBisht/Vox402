@@ -1,0 +1,12 @@
+name = "vox402-yield-agent"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FUJI_RPC_URL = "https://api.avax-test.network/ext/bc/C/rpc"
+PRICE_BASEUNITS = "10000"
+
+# Secrets (set via: wrangler secret put CHART_AGENT_PAYTO)
+# CHART_AGENT_PAYTO = ""
+# CHART_AGENT_GAS_PAYER_PK = ""

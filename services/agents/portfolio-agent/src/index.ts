@@ -22,9 +22,10 @@ import { avalancheFuji } from "viem/chains";
 const app = express();
 app.use(
     cors({
-        origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+        origin: true, // Allow all origins for Railway deployment
         methods: ["GET", "POST", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization"],
+        allowedHeaders: ["Content-Type", "Authorization", "X-PAYMENT", "x-payment"],
+        exposedHeaders: ["X-PAYMENT-RESPONSE"],
     })
 );
 app.use(express.json());
