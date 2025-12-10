@@ -302,6 +302,11 @@ export async function POST(request: NextRequest) {
         }
 
         if (status === 402) {
+            // Add WWW-Authenticate header with x402 data for frontend to parse
+            // The frontend expects: "x402 base64(json)"
+            const x402Data = Buffer.from(JSON.stringify(agentBody)).toString("base64");
+            responseHeaders["WWW-Authenticate"] = `x402 ${x402Data}`;
+
             return NextResponse.json(
                 { status: "payment_required", ...agentBody },
                 { status: 402, headers: responseHeaders }
