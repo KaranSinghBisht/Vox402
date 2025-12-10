@@ -270,11 +270,19 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: "ok", result });
         }
 
-        // Call agent: external (local dev) or internal (Vercel)
-        // With fallback: if external agent fails, try internal route
+        // Call agent: external (local dev or Cloudflare Workers) or internal (Vercel)
+        // Use external workers when env vars are explicitly set (not localhost defaults)
         let agentResult: { status: number; body: any; xPaymentResponse?: string };
 
-        if (isVercel) {
+        // Check if we should use external workers for swap/yield (Cloudflare Workers URLs)
+        const useExternalSwap = process.env.SWAP_AGENT_URL && !process.env.SWAP_AGENT_URL.includes("localhost");
+        const useExternalYield = process.env.YIELD_AGENT_URL && !process.env.YIELD_AGENT_URL.includes("localhost");
+
+        const forceExternal =
+            (action.kind === "swap" && useExternalSwap) ||
+            (action.kind === "yield" && useExternalYield);
+
+        if (isVercel && !forceExternal) {
             agentResult = await callInternalAgent(agentEndpoint, agentArgs, xPayment);
         } else {
             agentResult = await callExternalAgent(agentUrl, agentArgs, xPayment);
