@@ -6,6 +6,8 @@
 
 *Talk to the blockchain. Pay only for what you use.*
 
+**🥈 2nd place — Avalanche Hack2Build: Payments x402 ($1,000)**
+
 [![Built with Gemini](https://img.shields.io/badge/AI-Gemini%202.0-blue)](https://ai.google.dev/)
 [![x402 Protocol](https://img.shields.io/badge/Payments-x402-red)](https://www.x402.org/)
 [![Avalanche Fuji](https://img.shields.io/badge/Network-Avalanche%20Fuji-e84142)](https://www.avax.network/)
