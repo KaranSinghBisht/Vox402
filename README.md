@@ -12,7 +12,7 @@
 [![x402 Protocol](https://img.shields.io/badge/Payments-x402-red)](https://www.x402.org/)
 [![Avalanche Fuji](https://img.shields.io/badge/Network-Avalanche%20Fuji-e84142)](https://www.avax.network/)
 
-[Demo Video](#demo) • [Features](#features) • [Architecture](#architecture) • [Quick Start](#quick-start)
+[Live Demo](https://vox402.vercel.app) • [Features](#features) • [Architecture](#architecture) • [Quick Start](#quick-start)
 
 </div>
 
@@ -208,7 +208,9 @@ Vox402/
 
 ## 🎥 Demo
 
-*Coming soon*
+**Live app:** [vox402.vercel.app](https://vox402.vercel.app)
+
+Explore the deployed voice and text interface on Avalanche Fuji.
 
 ---
 
